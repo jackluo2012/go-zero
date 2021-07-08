@@ -11,21 +11,28 @@ import (
 )
 
 var (
+	// WithDialOption is an alias of internal.WithDialOption.
 	WithDialOption = internal.WithDialOption
-	WithTimeout    = internal.WithTimeout
+	// WithTimeout is an alias of internal.WithTimeout.
+	WithTimeout = internal.WithTimeout
+	// WithUnaryClientInterceptor is an alias of internal.WithUnaryClientInterceptor.
+	WithUnaryClientInterceptor = internal.WithUnaryClientInterceptor
 )
 
 type (
-	Client interface {
-		Conn() *grpc.ClientConn
-	}
+	// Client is an alias of internal.Client.
+	Client = internal.Client
+	// ClientOption is an alias of internal.ClientOption.
+	ClientOption = internal.ClientOption
 
+	// A RpcClient is a rpc client.
 	RpcClient struct {
 		client Client
 	}
 )
 
-func MustNewClient(c RpcClientConf, options ...internal.ClientOption) Client {
+// MustNewClient returns a Client, exits on any error.
+func MustNewClient(c RpcClientConf, options ...ClientOption) Client {
 	cli, err := NewClient(c, options...)
 	if err != nil {
 		log.Fatal(err)
@@ -34,8 +41,9 @@ func MustNewClient(c RpcClientConf, options ...internal.ClientOption) Client {
 	return cli
 }
 
-func NewClient(c RpcClientConf, options ...internal.ClientOption) (Client, error) {
-	var opts []internal.ClientOption
+// NewClient returns a Client.
+func NewClient(c RpcClientConf, options ...ClientOption) (Client, error) {
+	var opts []ClientOption
 	if c.HasCredential() {
 		opts = append(opts, WithDialOption(grpc.WithPerRPCCredentials(&auth.Credential{
 			App:   c.App,
@@ -63,8 +71,9 @@ func NewClient(c RpcClientConf, options ...internal.ClientOption) (Client, error
 	}, nil
 }
 
-func NewClientNoAuth(c discov.EtcdConf) (Client, error) {
-	client, err := internal.NewClient(internal.BuildDiscovTarget(c.Hosts, c.Key))
+// NewClientNoAuth returns a Client without authentication.
+func NewClientNoAuth(c discov.EtcdConf, opts ...ClientOption) (Client, error) {
+	client, err := internal.NewClient(internal.BuildDiscovTarget(c.Hosts, c.Key), opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -74,10 +83,12 @@ func NewClientNoAuth(c discov.EtcdConf) (Client, error) {
 	}, nil
 }
 
-func NewClientWithTarget(target string, opts ...internal.ClientOption) (Client, error) {
+// NewClientWithTarget returns a Client with connecting to given target.
+func NewClientWithTarget(target string, opts ...ClientOption) (Client, error) {
 	return internal.NewClient(target, opts...)
 }
 
+// Conn returns the underlying grpc.ClientConn.
 func (rc *RpcClient) Conn() *grpc.ClientConn {
 	return rc.client.Conn()
 }
