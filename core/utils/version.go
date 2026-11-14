@@ -1,11 +1,11 @@
 package utils
 
 import (
+	"cmp"
 	"strconv"
 	"strings"
 
-	"github.com/tal-tech/go-zero/core/mathx"
-	"github.com/tal-tech/go-zero/core/stringx"
+	"github.com/zeromicro/go-zero/core/stringx"
 )
 
 var replacer = stringx.NewReplacer(map[string]string{
@@ -14,7 +14,7 @@ var replacer = stringx.NewReplacer(map[string]string{
 	"-": ".",
 })
 
-// operator compare returns true if the first field and the third field equation holds else false
+// CompareVersions returns true if the first field and the third field are equal, otherwise false.
 func CompareVersions(v1, op, v2 string) bool {
 	result := compare(v1, v2)
 	switch op {
@@ -35,13 +35,11 @@ func CompareVersions(v1, op, v2 string) bool {
 
 // return -1 if v1<v2, 0 if they are equal, and 1 if v1>v2
 func compare(v1, v2 string) int {
-	v1 = replacer.Replace(v1)
-	v2 = replacer.Replace(v2)
-	fields1 := strings.Split(v1, ".")
-	fields2 := strings.Split(v2, ".")
-	ver1 := strsToInts(fields1)
-	ver2 := strsToInts(fields2)
-	shorter := mathx.MinInt(len(ver1), len(ver2))
+	v1, v2 = replacer.Replace(v1), replacer.Replace(v2)
+	fields1, fields2 := strings.Split(v1, "."), strings.Split(v2, ".")
+	ver1, ver2 := strsToInts(fields1), strsToInts(fields2)
+	ver1len, ver2len := len(ver1), len(ver2)
+	shorter := min(ver1len, ver2len)
 
 	for i := 0; i < shorter; i++ {
 		if ver1[i] == ver2[i] {
@@ -52,14 +50,7 @@ func compare(v1, v2 string) int {
 			return 1
 		}
 	}
-
-	if len(ver1) < len(ver2) {
-		return -1
-	} else if len(ver1) == len(ver2) {
-		return 0
-	} else {
-		return 1
-	}
+	return cmp.Compare(ver1len, ver2len)
 }
 
 func strsToInts(strs []string) []int64 {

@@ -1,29 +1,41 @@
 package tsgen
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
-	apiutil "github.com/tal-tech/go-zero/tools/goctl/api/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	apiutil "github.com/zeromicro/go-zero/tools/goctl/api/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
 )
 
-func writeProperty(writer io.Writer, member spec.Member, indent int, prefixForType func(string) string) error {
+const (
+	formTagKey   = "form"
+	pathTagKey   = "path"
+	headerTagKey = "header"
+)
+
+func writeProperty(writer io.Writer, member spec.Member, indent int) error {
 	writeIndent(writer, indent)
-	ty, err := goTypeToTs(member.Type, prefixForType)
+	ty, err := genTsType(member, indent)
 	if err != nil {
 		return err
 	}
 
 	optionalTag := ""
-	if member.IsOptional() || member.IsOmitempty() {
+	if member.IsOptional() || member.IsOmitEmpty() {
 		optionalTag = "?"
 	}
 	name, err := member.GetPropertyName()
 	if err != nil {
 		return err
+	}
+
+	if strings.Contains(name, "-") {
+		name = fmt.Sprintf("'%s'", name)
 	}
 
 	comment := member.GetComment()
@@ -33,7 +45,7 @@ func writeProperty(writer io.Writer, member spec.Member, indent int, prefixForTy
 	}
 	if len(member.Docs) > 0 {
 		fmt.Fprintf(writer, "%s\n", strings.Join(member.Docs, ""))
-		writeIndent(writer, 1)
+		writeIndent(writer, indent)
 	}
 	_, err = fmt.Fprintf(writer, "%s%s: %s%s\n", name, optionalTag, ty, comment)
 	return err
@@ -45,68 +57,89 @@ func writeIndent(writer io.Writer, indent int) {
 	}
 }
 
-func goTypeToTs(tp string, prefixForType func(string) string) (string, error) {
-	if val, pri := primitiveType(tp); pri {
-		return val, nil
+func genTsType(m spec.Member, indent int) (ty string, err error) {
+	v, ok := m.Type.(spec.NestedStruct)
+	if ok {
+		writer := bytes.NewBuffer(nil)
+		_, err := fmt.Fprintf(writer, "{\n")
+		if err != nil {
+			return "", err
+		}
+
+		if err := writeMembers(writer, v, false, indent+1); err != nil {
+			return "", err
+		}
+
+		writeIndent(writer, indent)
+		_, err = fmt.Fprintf(writer, "}")
+		if err != nil {
+			return "", err
+		}
+		return writer.String(), nil
 	}
-	if tp == "[]byte" {
-		return "Blob", nil
-	} else if strings.HasPrefix(tp, "[][]") {
-		tys, err := apiutil.DecomposeType(tp)
-		if err != nil {
-			return "", err
+
+	ty, err = goTypeToTs(m.Type, false)
+	if enums := m.GetEnumOptions(); enums != nil {
+		if ty == "string" {
+			for i := range enums {
+				enums[i] = "'" + enums[i] + "'"
+			}
 		}
-		if len(tys) == 0 {
-			return "", fmt.Errorf("%s tp parse error", tp)
-		}
-		innerType, err := goTypeToTs(tys[0], prefixForType)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Array<Array<%s>>", innerType), nil
-	} else if strings.HasPrefix(tp, "[]") {
-		tys, err := apiutil.DecomposeType(tp)
-		if err != nil {
-			return "", err
-		}
-		if len(tys) == 0 {
-			return "", fmt.Errorf("%s tp parse error", tp)
-		}
-		innerType, err := goTypeToTs(tys[0], prefixForType)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("Array<%s>", innerType), nil
-	} else if strings.HasPrefix(tp, "map") {
-		tys, err := apiutil.DecomposeType(tp)
-		if err != nil {
-			return "", err
-		}
-		if len(tys) != 2 {
-			return "", fmt.Errorf("%s tp parse error", tp)
-		}
-		innerType, err := goTypeToTs(tys[1], prefixForType)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("{ [key: string]: %s }", innerType), nil
+		ty = strings.Join(enums, " | ")
 	}
-	return addPrefixIfNeed(util.Title(tp), prefixForType), nil
+	return
 }
 
-func addPrefixIfNeed(tp string, prefixForType func(string) string) string {
-	if val, pri := primitiveType(tp); pri {
-		return val
+func goTypeToTs(tp spec.Type, fromPacket bool) (string, error) {
+	switch v := tp.(type) {
+	case spec.DefineStruct:
+		return addPrefix(tp, fromPacket), nil
+	case spec.PrimitiveType:
+		r, ok := primitiveType(tp.Name())
+		if !ok {
+			return "", errors.New("unsupported primitive type " + tp.Name())
+		}
+
+		return r, nil
+	case spec.MapType:
+		valueType, err := goTypeToTs(v.Value, fromPacket)
+		if err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("{ [key: string]: %s }", valueType), nil
+	case spec.ArrayType:
+		if tp.Name() == "[]byte" {
+			return "Blob", nil
+		}
+
+		valueType, err := goTypeToTs(v.Value, fromPacket)
+		if err != nil {
+			return "", err
+		}
+
+		return fmt.Sprintf("Array<%s>", valueType), nil
+	case spec.InterfaceType:
+		return "any", nil
+	case spec.PointerType:
+		return goTypeToTs(v.Type, fromPacket)
 	}
-	tp = strings.Replace(tp, "*", "", 1)
-	return prefixForType(tp) + util.Title(tp)
+
+	return "", errors.New("unsupported type " + tp.Name())
+}
+
+func addPrefix(tp spec.Type, fromPacket bool) string {
+	if fromPacket {
+		return packagePrefix + util.Title(tp.Name())
+	}
+	return util.Title(tp.Name())
 }
 
 func primitiveType(tp string) (string, bool) {
 	switch tp {
 	case "string":
 		return "string", true
-	case "int", "int8", "int32", "int64":
+	case "int", "int8", "int16", "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64":
 		return "number", true
 	case "float", "float32", "float64":
 		return "number", true
@@ -120,52 +153,96 @@ func primitiveType(tp string) (string, bool) {
 	return "", false
 }
 
-func writeType(writer io.Writer, tp spec.Type, inlineType func(string) (*spec.Type, error), prefixForType func(string) string) error {
-	fmt.Fprintf(writer, "export interface %s {\n", util.Title(tp.Name))
-	if err := genMembers(writer, tp, false, inlineType, prefixForType); err != nil {
+func writeType(writer io.Writer, tp spec.Type) error {
+	fmt.Fprintf(writer, "export interface %s {\n", util.Title(tp.Name()))
+	if err := writeMembers(writer, tp, false, 1); err != nil {
 		return err
 	}
+
 	fmt.Fprintf(writer, "}\n")
-	err := genParamsTypesIfNeed(writer, tp, inlineType, prefixForType)
-	if err != nil {
-		return err
-	}
-	return nil
+	return genParamsTypesIfNeed(writer, tp)
 }
 
-func genParamsTypesIfNeed(writer io.Writer, tp spec.Type, inlineType func(string) (*spec.Type, error), prefixForType func(string) string) error {
-	members := tp.GetNonBodyMembers()
+func genParamsTypesIfNeed(writer io.Writer, tp spec.Type) error {
+	definedType, ok := tp.(spec.DefineStruct)
+	if !ok {
+		return errors.New("no members of type " + tp.Name())
+	}
+
+	members := definedType.GetNonBodyMembers()
 	if len(members) == 0 {
 		return nil
 	}
-	fmt.Fprintf(writer, "\n")
-	fmt.Fprintf(writer, "export interface %sParams {\n", util.Title(tp.Name))
-	if err := genMembers(writer, tp, true, inlineType, prefixForType); err != nil {
+
+	fmt.Fprintf(writer, "export interface %sParams {\n", util.Title(tp.Name()))
+	if err := writeTagMembers(writer, tp, formTagKey); err != nil {
 		return err
 	}
 	fmt.Fprintf(writer, "}\n")
+
+	if len(definedType.GetTagMembers(headerTagKey)) > 0 {
+		fmt.Fprintf(writer, "export interface %sHeaders {\n", util.Title(tp.Name()))
+		if err := writeTagMembers(writer, tp, headerTagKey); err != nil {
+			return err
+		}
+		fmt.Fprintf(writer, "}\n")
+	}
+
 	return nil
 }
 
-func genMembers(writer io.Writer, tp spec.Type, isParam bool, inlineType func(string) (*spec.Type, error), prefixForType func(string) string) error {
-	members := tp.GetBodyMembers()
+func writeMembers(writer io.Writer, tp spec.Type, isParam bool, indent int) error {
+	definedType, ok := tp.(spec.DefineStruct)
+	if !ok {
+		pointType, ok := tp.(spec.PointerType)
+		if ok {
+			return writeMembers(writer, pointType.Type, isParam, indent)
+		}
+
+		return fmt.Errorf("type %s not supported", tp.Name())
+	}
+
+	members := definedType.GetBodyMembers()
 	if isParam {
-		members = tp.GetNonBodyMembers()
+		members = definedType.GetNonBodyMembers()
 	}
 	for _, member := range members {
 		if member.IsInline {
-			// 获取inline类型的成员然后添加到type中
-			it, err := inlineType(strings.TrimPrefix(member.Type, "*"))
-			if err != nil {
-				return err
-			}
-			if err := genMembers(writer, *it, isParam, inlineType, prefixForType); err != nil {
+			if err := writeMembers(writer, member.Type, isParam, indent); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := writeProperty(writer, member, 1, prefixForType); err != nil {
-			return apiutil.WrapErr(err, " type "+tp.Name)
+
+		if err := writeProperty(writer, member, indent); err != nil {
+			return apiutil.WrapErr(err, " type "+tp.Name())
+		}
+	}
+	return nil
+}
+
+func writeTagMembers(writer io.Writer, tp spec.Type, tagKey string) error {
+	definedType, ok := tp.(spec.DefineStruct)
+	if !ok {
+		pointType, ok := tp.(spec.PointerType)
+		if ok {
+			return writeTagMembers(writer, pointType.Type, tagKey)
+		}
+
+		return fmt.Errorf("type %s not supported", tp.Name())
+	}
+
+	members := definedType.GetTagMembers(tagKey)
+	for _, member := range members {
+		if member.IsInline {
+			if err := writeTagMembers(writer, member.Type, tagKey); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if err := writeProperty(writer, member, 1); err != nil {
+			return apiutil.WrapErr(err, " type "+tp.Name())
 		}
 	}
 	return nil

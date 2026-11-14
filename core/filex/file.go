@@ -7,6 +7,7 @@ import (
 
 const bufSize = 1024
 
+// FirstLine returns the first line of the file.
 func FirstLine(filename string) (string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -17,6 +18,7 @@ func FirstLine(filename string) (string, error) {
 	return firstLine(file)
 }
 
+// LastLine returns the last line of the file.
 func LastLine(filename string) (string, error) {
 	file, err := os.Open(filename)
 	if err != nil {
@@ -33,6 +35,7 @@ func firstLine(file *os.File) (string, error) {
 	for {
 		buf := make([]byte, bufSize)
 		n, err := file.ReadAt(buf, offset)
+
 		if err != nil && err != io.EOF {
 			return "", err
 		}
@@ -41,6 +44,10 @@ func firstLine(file *os.File) (string, error) {
 			if buf[i] == '\n' {
 				return string(append(first, buf[:i]...)), nil
 			}
+		}
+
+		if err == io.EOF {
+			return string(append(first, buf[:n]...)), nil
 		}
 
 		first = append(first, buf[:n]...)
@@ -55,30 +62,42 @@ func lastLine(filename string, file *os.File) (string, error) {
 	}
 
 	var last []byte
+	bufLen := int64(bufSize)
 	offset := info.Size()
-	for {
-		offset -= bufSize
-		if offset < 0 {
+
+	for offset > 0 {
+		if offset < bufLen {
+			bufLen = offset
 			offset = 0
+		} else {
+			offset -= bufLen
 		}
-		buf := make([]byte, bufSize)
+
+		buf := make([]byte, bufLen)
 		n, err := file.ReadAt(buf, offset)
 		if err != nil && err != io.EOF {
 			return "", err
 		}
 
-		if buf[n-1] == '\n' {
+		if n == 0 {
+			break
+		}
+
+		if offset+int64(n) == info.Size() && buf[n-1] == '\n' {
 			buf = buf[:n-1]
-			n -= 1
+			n--
 		} else {
 			buf = buf[:n]
 		}
-		for n -= 1; n >= 0; n-- {
-			if buf[n] == '\n' {
-				return string(append(buf[n+1:], last...)), nil
+
+		for i := n - 1; i >= 0; i-- {
+			if buf[i] == '\n' {
+				return string(append(buf[i+1:], last...)), nil
 			}
 		}
 
 		last = append(buf, last...)
 	}
+
+	return string(last), nil
 }

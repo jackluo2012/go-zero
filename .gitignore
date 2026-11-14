@@ -4,18 +4,28 @@
 # Unignore all with extensions
 !*.*
 !**/Dockerfile
+!**/Makefile
 
 # Unignore all dirs
 !*/
 !api
 
-.idea
+# ignore
+**/.idea
+**/.vscode
 **/.DS_Store
 **/logs
-!Makefile
+**/adhoc
+**/coverage.txt
+**/WARP.md
+
+# for test purpose
+go.work
+go.work.sum
 
 # gitlab ci
 .cache
+.golangci.yml
 
 # vim auto backup file
 *~

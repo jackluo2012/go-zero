@@ -1,37 +1,44 @@
 package new
 
 import (
+	_ "embed"
+	"errors"
+	"html/template"
 	"os"
 	"path/filepath"
-	"text/template"
+	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/api/gogen"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/urfave/cli"
+	"github.com/spf13/cobra"
+	"github.com/zeromicro/go-zero/tools/goctl/api/gogen"
+	conf "github.com/zeromicro/go-zero/tools/goctl/config"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
-const apiTemplate = `
-type Request struct {
-  Name string ` + "`" + `path:"name,options=you|me"` + "`" + ` // 框架自动验证请求参数是否合法
-}
+//go:embed api.tpl
+var apiTemplate string
 
-type Response struct {
-  Message string ` + "`" + `json:"message"` + "`" + `
-}
+var (
+	// VarStringHome describes the goctl home.
+	VarStringHome string
+	// VarStringRemote describes the remote git repository.
+	VarStringRemote string
+	// VarStringBranch describes the git branch.
+	VarStringBranch string
+	// VarStringStyle describes the style of output files.
+	VarStringStyle string
+	// VarStringModule describes the module name for go.mod.
+	VarStringModule string
+)
 
-service {{.name}}-api {
-  @server(
-    handler: GreetHandler
-  )
-  get /greet/from/:name(Request) returns (Response);
-}
-`
-
-func NewService(c *cli.Context) error {
-	args := c.Args()
-	dirName := "greet"
-	if len(args) > 0 {
-		dirName = args.First()
+// CreateServiceCommand fast create service
+func CreateServiceCommand(_ *cobra.Command, args []string) error {
+	dirName := args[0]
+	if len(VarStringStyle) == 0 {
+		VarStringStyle = conf.DefaultFormat
+	}
+	if strings.Contains(dirName, "-") {
+		return errors.New("api new command service name not support strikethrough, because this will used by function name")
 	}
 
 	abs, err := filepath.Abs(dirName)
@@ -39,7 +46,7 @@ func NewService(c *cli.Context) error {
 		return err
 	}
 
-	err = util.MkdirIfNotExist(abs)
+	err = pathx.MkdirIfNotExist(abs)
 	if err != nil {
 		return err
 	}
@@ -53,13 +60,31 @@ func NewService(c *cli.Context) error {
 	}
 
 	defer fp.Close()
-	t := template.Must(template.New("template").Parse(apiTemplate))
+
+	if len(VarStringRemote) > 0 {
+		repo, _ := util.CloneIntoGitHome(VarStringRemote, VarStringBranch)
+		if len(repo) > 0 {
+			VarStringHome = repo
+		}
+	}
+
+	if len(VarStringHome) > 0 {
+		pathx.RegisterGoctlHome(VarStringHome)
+	}
+
+	text, err := pathx.LoadTemplate(category, apiTemplateFile, apiTemplate)
+	if err != nil {
+		return err
+	}
+
+	t := template.Must(template.New("template").Parse(text))
 	if err := t.Execute(fp, map[string]string{
-		"name": dirName,
+		"name":    dirName,
+		"handler": strings.Title(dirName),
 	}); err != nil {
 		return err
 	}
 
-	err = gogen.DoGenProject(apiFilePath, abs, true)
+	err = gogen.DoGenProjectWithModule(apiFilePath, abs, VarStringModule, VarStringStyle, false)
 	return err
 }

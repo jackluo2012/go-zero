@@ -1,47 +1,70 @@
 package gen
 
 import (
+	"sort"
 	"strings"
 
-	"github.com/tal-tech/go-zero/core/collection"
-	"github.com/tal-tech/go-zero/tools/goctl/model/sql/template"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util/stringx"
+	"github.com/zeromicro/go-zero/core/collection"
+	"github.com/zeromicro/go-zero/tools/goctl/model/sql/template"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 )
 
-func genDelete(table Table, withCache bool) (string, error) {
-	keySet := collection.NewSet()
-	keyVariableSet := collection.NewSet()
-	for fieldName, key := range table.CacheKey {
-		if fieldName == table.PrimaryKey.Name.Source() {
-			keySet.AddStr(key.KeyExpression)
-		} else {
-			keySet.AddStr(key.DataKeyExpression)
-		}
-		keyVariableSet.AddStr(key.Variable)
+func genDelete(table Table, withCache, postgreSql bool) (string, string, error) {
+	keySet := collection.NewSet[string]()
+	keyVariableSet := collection.NewSet[string]()
+	keySet.Add(table.PrimaryCacheKey.KeyExpression)
+	keyVariableSet.Add(table.PrimaryCacheKey.KeyLeft)
+	for _, key := range table.UniqueCacheKey {
+		keySet.Add(key.DataKeyExpression)
+		keyVariableSet.Add(key.KeyLeft)
 	}
-	var containsIndexCache = false
-	for _, item := range table.Fields {
-		if item.IsUniqueKey {
-			containsIndexCache = true
-			break
-		}
-	}
+	keys := keySet.Keys()
+	sort.Strings(keys)
+	keyVars := keyVariableSet.Keys()
+	sort.Strings(keyVars)
+
 	camel := table.Name.ToCamel()
+	text, err := pathx.LoadTemplate(category, deleteTemplateFile, template.Delete)
+	if err != nil {
+		return "", "", err
+	}
+
 	output, err := util.With("delete").
-		Parse(template.Delete).
-		Execute(map[string]interface{}{
+		Parse(text).
+		Execute(map[string]any{
 			"upperStartCamelObject":     camel,
 			"withCache":                 withCache,
-			"containsIndexCache":        containsIndexCache,
-			"lowerStartCamelPrimaryKey": stringx.From(table.PrimaryKey.Name.ToCamel()).UnTitle(),
+			"containsIndexCache":        table.ContainsUniqueCacheKey,
+			"lowerStartCamelPrimaryKey": util.EscapeGolangKeyword(stringx.From(table.PrimaryKey.Name.ToCamel()).Untitle()),
 			"dataType":                  table.PrimaryKey.DataType,
-			"keys":                      strings.Join(keySet.KeysStr(), "\n"),
-			"originalPrimaryKey":        table.PrimaryKey.Name.Source(),
-			"keyValues":                 strings.Join(keyVariableSet.KeysStr(), ", "),
+			"keys":                      strings.Join(keys, "\n"),
+			"originalPrimaryKey":        wrapWithRawString(table.PrimaryKey.Name.Source(), postgreSql),
+			"keyValues":                 strings.Join(keyVars, ", "),
+			"postgreSql":                postgreSql,
+			"data":                      table,
 		})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return output.String(), nil
+
+	// interface method
+	text, err = pathx.LoadTemplate(category, deleteMethodTemplateFile, template.DeleteMethod)
+	if err != nil {
+		return "", "", err
+	}
+
+	deleteMethodOut, err := util.With("deleteMethod").
+		Parse(text).
+		Execute(map[string]any{
+			"lowerStartCamelPrimaryKey": util.EscapeGolangKeyword(stringx.From(table.PrimaryKey.Name.ToCamel()).Untitle()),
+			"dataType":                  table.PrimaryKey.DataType,
+			"data":                      table,
+		})
+	if err != nil {
+		return "", "", err
+	}
+
+	return output.String(), deleteMethodOut.String(), nil
 }

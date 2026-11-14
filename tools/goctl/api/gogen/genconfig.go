@@ -1,62 +1,68 @@
 package gogen
 
 import (
-	"bytes"
+	_ "embed"
 	"fmt"
 	"strings"
-	"text/template"
 
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
-	"github.com/tal-tech/go-zero/tools/goctl/api/util"
-	"github.com/tal-tech/go-zero/tools/goctl/vars"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/config"
+	"github.com/zeromicro/go-zero/tools/goctl/internal/version"
+	"github.com/zeromicro/go-zero/tools/goctl/util/format"
+	"github.com/zeromicro/go-zero/tools/goctl/vars"
 )
 
 const (
-	configFile     = "config.go"
-	configTemplate = `package config
-
-import {{.authImport}}
-
-type Config struct {
-	rest.RestConf
-	{{.auth}}
-}
-`
+	configFile = "config"
 
 	jwtTemplate = ` struct {
 		AccessSecret string
 		AccessExpire int64
 	}
 `
+	jwtTransTemplate = ` struct {
+		Secret     string
+		PrevSecret string
+	}
+`
 )
 
-func genConfig(dir string, api *spec.ApiSpec) error {
-	fp, created, err := util.MaybeCreateFile(dir, configDir, configFile)
+//go:embed config.tpl
+var configTemplate string
+
+func genConfig(dir, projectPkg string, cfg *config.Config, api *spec.ApiSpec) error {
+	filename, err := format.FileNamingFormat(cfg.NamingFormat, configFile)
 	if err != nil {
 		return err
 	}
-	if !created {
-		return nil
-	}
-	defer fp.Close()
 
-	var authNames = getAuths(api)
-	var auths []string
+	authNames := getAuths(api)
+	auths := make([]string, 0, len(authNames))
 	for _, item := range authNames {
 		auths = append(auths, fmt.Sprintf("%s %s", item, jwtTemplate))
 	}
 
-	var authImportStr = fmt.Sprintf("\"%s/rest\"", vars.ProjectOpenSourceUrl)
-	t := template.Must(template.New("configTemplate").Parse(configTemplate))
-	buffer := new(bytes.Buffer)
-	err = t.Execute(buffer, map[string]string{
-		"authImport": authImportStr,
-		"auth":       strings.Join(auths, "\n"),
-	})
-	if err != nil {
-		return nil
+	jwtTransNames := getJwtTrans(api)
+	jwtTransList := make([]string, 0, len(jwtTransNames))
+	for _, item := range jwtTransNames {
+		jwtTransList = append(jwtTransList, fmt.Sprintf("%s %s", item, jwtTransTemplate))
 	}
-	formatCode := formatCode(buffer.String())
-	_, err = fp.WriteString(formatCode)
-	return err
+	authImportStr := fmt.Sprintf("\"%s/rest\"", vars.ProjectOpenSourceURL)
+
+	return genFile(fileGenConfig{
+		dir:             dir,
+		subdir:          configDir,
+		filename:        filename + ".go",
+		templateName:    "configTemplate",
+		category:        category,
+		templateFile:    configTemplateFile,
+		builtinTemplate: configTemplate,
+		data: map[string]string{
+			"authImport": authImportStr,
+			"auth":       strings.Join(auths, "\n"),
+			"jwtTrans":   strings.Join(jwtTransList, "\n"),
+			"projectPkg": projectPkg,
+			"version":    version.BuildVersion,
+		},
+	})
 }

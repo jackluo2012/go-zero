@@ -1,6 +1,9 @@
 package collection
 
-import "sync"
+import (
+	"maps"
+	"sync"
+)
 
 const (
 	copyThreshold = 1000
@@ -14,19 +17,23 @@ type SafeMap struct {
 	lock        sync.RWMutex
 	deletionOld int
 	deletionNew int
-	dirtyOld    map[interface{}]interface{}
-	dirtyNew    map[interface{}]interface{}
+	dirtyOld    map[any]any
+	dirtyNew    map[any]any
 }
 
+// NewSafeMap returns a SafeMap.
 func NewSafeMap() *SafeMap {
 	return &SafeMap{
-		dirtyOld: make(map[interface{}]interface{}),
-		dirtyNew: make(map[interface{}]interface{}),
+		dirtyOld: make(map[any]any),
+		dirtyNew: make(map[any]any),
 	}
 }
 
-func (m *SafeMap) Del(key interface{}) {
+// Del deletes the value with the given key from m.
+func (m *SafeMap) Del(key any) {
 	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	if _, ok := m.dirtyOld[key]; ok {
 		delete(m.dirtyOld, key)
 		m.deletionOld++
@@ -35,38 +42,55 @@ func (m *SafeMap) Del(key interface{}) {
 		m.deletionNew++
 	}
 	if m.deletionOld >= maxDeletion && len(m.dirtyOld) < copyThreshold {
-		for k, v := range m.dirtyOld {
-			m.dirtyNew[k] = v
-		}
+		maps.Copy(m.dirtyNew, m.dirtyOld)
 		m.dirtyOld = m.dirtyNew
 		m.deletionOld = m.deletionNew
-		m.dirtyNew = make(map[interface{}]interface{})
+		m.dirtyNew = make(map[any]any)
 		m.deletionNew = 0
 	}
 	if m.deletionNew >= maxDeletion && len(m.dirtyNew) < copyThreshold {
-		for k, v := range m.dirtyNew {
-			m.dirtyOld[k] = v
-		}
-		m.dirtyNew = make(map[interface{}]interface{})
+		maps.Copy(m.dirtyOld, m.dirtyNew)
+		m.dirtyNew = make(map[any]any)
 		m.deletionNew = 0
 	}
-	m.lock.Unlock()
 }
 
-func (m *SafeMap) Get(key interface{}) (interface{}, bool) {
+// Get gets the value with the given key from m.
+func (m *SafeMap) Get(key any) (any, bool) {
 	m.lock.RLock()
 	defer m.lock.RUnlock()
 
 	if val, ok := m.dirtyOld[key]; ok {
 		return val, true
-	} else {
-		val, ok := m.dirtyNew[key]
-		return val, ok
+	}
+
+	val, ok := m.dirtyNew[key]
+	return val, ok
+}
+
+// Range calls f sequentially for each key and value present in the map.
+// If f returns false, range stops the iteration.
+func (m *SafeMap) Range(f func(key, val any) bool) {
+	m.lock.RLock()
+	defer m.lock.RUnlock()
+
+	for k, v := range m.dirtyOld {
+		if !f(k, v) {
+			return
+		}
+	}
+	for k, v := range m.dirtyNew {
+		if !f(k, v) {
+			return
+		}
 	}
 }
 
-func (m *SafeMap) Set(key, value interface{}) {
+// Set sets the value into m with the given key.
+func (m *SafeMap) Set(key, value any) {
 	m.lock.Lock()
+	defer m.lock.Unlock()
+
 	if m.deletionOld <= maxDeletion {
 		if _, ok := m.dirtyNew[key]; ok {
 			delete(m.dirtyNew, key)
@@ -80,9 +104,9 @@ func (m *SafeMap) Set(key, value interface{}) {
 		}
 		m.dirtyNew[key] = value
 	}
-	m.lock.Unlock()
 }
 
+// Size returns the size of m.
 func (m *SafeMap) Size() int {
 	m.lock.RLock()
 	size := len(m.dirtyOld) + len(m.dirtyNew)

@@ -485,41 +485,41 @@ func TestUnmarshalBytesMap(t *testing.T) {
 func TestUnmarshalBytesMapStruct(t *testing.T) {
 	var c struct {
 		Persons map[string]struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": {"Id": 1, "name": "kevin"}}}`)
+	content := []byte(`{"Persons": {"first": {"ID": 1, "name": "kevin"}}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"].Id)
+	assert.Equal(t, 1, c.Persons["first"].ID)
 	assert.Equal(t, "kevin", c.Persons["first"].Name)
 }
 
 func TestUnmarshalBytesMapStructPtr(t *testing.T) {
 	var c struct {
 		Persons map[string]*struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": {"Id": 1, "name": "kevin"}}}`)
+	content := []byte(`{"Persons": {"first": {"ID": 1, "name": "kevin"}}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"].Id)
+	assert.Equal(t, 1, c.Persons["first"].ID)
 	assert.Equal(t, "kevin", c.Persons["first"].Name)
 }
 
 func TestUnmarshalBytesMapStructMissingPartial(t *testing.T) {
 	var c struct {
 		Persons map[string]*struct {
-			Id   int
+			ID   int
 			Name string
 		}
 	}
-	content := []byte(`{"Persons": {"first": {"Id": 1}}}`)
+	content := []byte(`{"Persons": {"first": {"ID": 1}}}`)
 
 	assert.NotNil(t, UnmarshalJsonBytes(content, &c))
 }
@@ -527,21 +527,21 @@ func TestUnmarshalBytesMapStructMissingPartial(t *testing.T) {
 func TestUnmarshalBytesMapStructOptional(t *testing.T) {
 	var c struct {
 		Persons map[string]*struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": {"Id": 1}}}`)
+	content := []byte(`{"Persons": {"first": {"ID": 1}}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"].Id)
+	assert.Equal(t, 1, c.Persons["first"].ID)
 }
 
 func TestUnmarshalBytesMapEmptyStructSlice(t *testing.T) {
 	var c struct {
 		Persons map[string][]struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
@@ -555,22 +555,22 @@ func TestUnmarshalBytesMapEmptyStructSlice(t *testing.T) {
 func TestUnmarshalBytesMapStructSlice(t *testing.T) {
 	var c struct {
 		Persons map[string][]struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": [{"Id": 1, "name": "kevin"}]}}`)
+	content := []byte(`{"Persons": {"first": [{"ID": 1, "name": "kevin"}]}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"][0].Id)
+	assert.Equal(t, 1, c.Persons["first"][0].ID)
 	assert.Equal(t, "kevin", c.Persons["first"][0].Name)
 }
 
 func TestUnmarshalBytesMapEmptyStructPtrSlice(t *testing.T) {
 	var c struct {
 		Persons map[string][]*struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
@@ -584,26 +584,26 @@ func TestUnmarshalBytesMapEmptyStructPtrSlice(t *testing.T) {
 func TestUnmarshalBytesMapStructPtrSlice(t *testing.T) {
 	var c struct {
 		Persons map[string][]*struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": [{"Id": 1, "name": "kevin"}]}}`)
+	content := []byte(`{"Persons": {"first": [{"ID": 1, "name": "kevin"}]}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"][0].Id)
+	assert.Equal(t, 1, c.Persons["first"][0].ID)
 	assert.Equal(t, "kevin", c.Persons["first"][0].Name)
 }
 
 func TestUnmarshalBytesMapStructPtrSliceMissingPartial(t *testing.T) {
 	var c struct {
 		Persons map[string][]*struct {
-			Id   int
+			ID   int
 			Name string
 		}
 	}
-	content := []byte(`{"Persons": {"first": [{"Id": 1}]}}`)
+	content := []byte(`{"Persons": {"first": [{"ID": 1}]}}`)
 
 	assert.NotNil(t, UnmarshalJsonBytes(content, &c))
 }
@@ -611,15 +611,15 @@ func TestUnmarshalBytesMapStructPtrSliceMissingPartial(t *testing.T) {
 func TestUnmarshalBytesMapStructPtrSliceOptional(t *testing.T) {
 	var c struct {
 		Persons map[string][]*struct {
-			Id   int
+			ID   int
 			Name string `json:"name,optional"`
 		}
 	}
-	content := []byte(`{"Persons": {"first": [{"Id": 1}]}}`)
+	content := []byte(`{"Persons": {"first": [{"ID": 1}]}}`)
 
 	assert.Nil(t, UnmarshalJsonBytes(content, &c))
 	assert.Equal(t, 1, len(c.Persons))
-	assert.Equal(t, 1, c.Persons["first"][0].Id)
+	assert.Equal(t, 1, c.Persons["first"][0].ID)
 }
 
 func TestUnmarshalStructOptional(t *testing.T) {
@@ -856,8 +856,7 @@ func TestUnmarshalBytesError(t *testing.T) {
 	}
 
 	err := UnmarshalJsonBytes([]byte(payload), &v)
-	assert.NotNil(t, err)
-	assert.True(t, strings.Contains(err.Error(), payload))
+	assert.Equal(t, errTypeMismatch, err)
 }
 
 func TestUnmarshalReaderError(t *testing.T) {
@@ -867,7 +866,184 @@ func TestUnmarshalReaderError(t *testing.T) {
 		Any string
 	}
 
-	err := UnmarshalJsonReader(reader, &v)
-	assert.NotNil(t, err)
-	assert.True(t, strings.Contains(err.Error(), payload))
+	assert.Equal(t, errTypeMismatch, UnmarshalJsonReader(reader, &v))
+}
+
+func TestUnmarshalMap(t *testing.T) {
+	t.Run("nil map and valid", func(t *testing.T) {
+		var m map[string]any
+		var v struct {
+			Any string `json:",optional"`
+		}
+
+		err := UnmarshalJsonMap(m, &v)
+		assert.Nil(t, err)
+		assert.True(t, len(v.Any) == 0)
+	})
+
+	t.Run("empty map but not valid", func(t *testing.T) {
+		m := map[string]any{}
+		var v struct {
+			Any string
+		}
+
+		err := UnmarshalJsonMap(m, &v)
+		assert.NotNil(t, err)
+	})
+
+	t.Run("empty map and valid", func(t *testing.T) {
+		m := map[string]any{}
+		var v struct {
+			Any string `json:",optional"`
+		}
+
+		err := UnmarshalJsonMap(m, &v, WithCanonicalKeyFunc(func(s string) string {
+			return s
+		}))
+		assert.Nil(t, err)
+		assert.True(t, len(v.Any) == 0)
+	})
+
+	t.Run("valid map", func(t *testing.T) {
+		m := map[string]any{
+			"Any": "foo",
+		}
+		var v struct {
+			Any string
+		}
+
+		err := UnmarshalJsonMap(m, &v)
+		assert.Nil(t, err)
+		assert.Equal(t, "foo", v.Any)
+	})
+}
+
+func TestUnmarshalJsonArray(t *testing.T) {
+	var v []struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	body := `[{"name":"kevin", "age": 18}]`
+	assert.NoError(t, UnmarshalJsonBytes([]byte(body), &v))
+	assert.Equal(t, 1, len(v))
+	assert.Equal(t, "kevin", v[0].Name)
+	assert.Equal(t, 18, v[0].Age)
+}
+
+func TestUnmarshalJsonBytesPointerSliceUint64(t *testing.T) {
+	t.Run("with values", func(t *testing.T) {
+		var c struct {
+			IDs *[]uint64 `json:"ids,optional"`
+		}
+		content := []byte(`{"ids":[9000,9001]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.IDs)
+		assert.Equal(t, []uint64{9000, 9001}, *c.IDs)
+	})
+
+	t.Run("omitted", func(t *testing.T) {
+		var c struct {
+			IDs *[]uint64 `json:"ids,optional"`
+		}
+		content := []byte(`{}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.Nil(t, c.IDs)
+	})
+
+	t.Run("null", func(t *testing.T) {
+		var c struct {
+			IDs *[]uint64 `json:"ids,optional"`
+		}
+		content := []byte(`{"ids":null}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.Nil(t, c.IDs)
+	})
+
+	t.Run("empty array", func(t *testing.T) {
+		var c struct {
+			IDs *[]uint64 `json:"ids,optional"`
+		}
+		content := []byte(`{"ids":[]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.IDs)
+		assert.Equal(t, []uint64{}, *c.IDs)
+	})
+}
+
+func TestUnmarshalJsonBytesPointerSliceOtherTypes(t *testing.T) {
+	t.Run("pointer to []string", func(t *testing.T) {
+		var c struct {
+			Names *[]string `json:"names,optional"`
+		}
+		content := []byte(`{"names":["a","b"]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.Names)
+		assert.Equal(t, []string{"a", "b"}, *c.Names)
+	})
+
+	t.Run("pointer to []int", func(t *testing.T) {
+		var c struct {
+			Values *[]int `json:"values,optional"`
+		}
+		content := []byte(`{"values":[1,2,3]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.Values)
+		assert.Equal(t, []int{1, 2, 3}, *c.Values)
+	})
+}
+
+func TestUnmarshalJsonBytesPointerSliceStruct(t *testing.T) {
+	type Item struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	t.Run("with values", func(t *testing.T) {
+		var c struct {
+			Items *[]Item `json:"items,optional"`
+		}
+		content := []byte(`{"items":[{"name":"alice","age":30},{"name":"bob","age":25}]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.Items)
+		assert.Equal(t, []Item{{Name: "alice", Age: 30}, {Name: "bob", Age: 25}}, *c.Items)
+	})
+
+	t.Run("omitted", func(t *testing.T) {
+		var c struct {
+			Items *[]Item `json:"items,optional"`
+		}
+		content := []byte(`{}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.Nil(t, c.Items)
+	})
+
+	t.Run("empty array", func(t *testing.T) {
+		var c struct {
+			Items *[]Item `json:"items,optional"`
+		}
+		content := []byte(`{"items":[]}`)
+
+		assert.Nil(t, UnmarshalJsonBytes(content, &c))
+		assert.NotNil(t, c.Items)
+		assert.Equal(t, []Item{}, *c.Items)
+	})
+}
+
+func TestUnmarshalJsonBytesError(t *testing.T) {
+	var v []struct {
+		Name string `json:"name"`
+		Age  int    `json:"age"`
+	}
+
+	assert.Error(t, UnmarshalJsonBytes([]byte((``)), &v))
+	assert.Error(t, UnmarshalJsonReader(strings.NewReader(``), &v))
 }

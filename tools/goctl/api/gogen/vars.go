@@ -1,12 +1,15 @@
 package gogen
 
 const (
-	interval       = "internal/"
-	typesPacket    = "types"
-	configDir      = interval + "config"
-	contextDir     = interval + "svc"
-	handlerDir     = interval + "handler"
-	logicDir       = interval + "logic"
-	typesDir       = interval + typesPacket
-	folderProperty = "folder"
+	internal      = "internal/"
+	typesPacket   = "types"
+	configDir     = internal + "config"
+	contextDir    = internal + "svc"
+	handlerDir    = internal + "handler"
+	logicDir      = internal + "logic"
+	middlewareDir = internal + "middleware"
+	typesDir      = internal + typesPacket
+	groupProperty = "group"
+
+	groupTypeDefault="types"
 )

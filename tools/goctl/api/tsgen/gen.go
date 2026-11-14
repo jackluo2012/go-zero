@@ -4,40 +4,61 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/logrusorgru/aurora"
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/tools/goctl/api/parser"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/urfave/cli"
+	"github.com/gookit/color"
+	"github.com/spf13/cobra"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
-func TsCommand(c *cli.Context) error {
-	apiFile := c.String("api")
-	dir := c.String("dir")
-	webApi := c.String("webapi")
-	caller := c.String("caller")
-	unwrapApi := c.Bool("unwrap")
+var (
+	// VarStringDir describes a directory.
+	VarStringDir string
+	// VarStringAPI describes an API file.
+	VarStringAPI string
+	// VarStringWebAPI describes a web API file.
+	VarStringWebAPI string
+	// VarStringCaller describes a caller.
+	VarStringCaller string
+	// VarBoolUnWrap describes whether wrap or not.
+	VarBoolUnWrap bool
+)
+
+// TsCommand provides the entry to generate typescript codes
+func TsCommand(_ *cobra.Command, _ []string) error {
+	apiFile := VarStringAPI
+	dir := VarStringDir
+	webAPI := VarStringWebAPI
+	caller := VarStringCaller
+	unwrapAPI := VarBoolUnWrap
 	if len(apiFile) == 0 {
 		return errors.New("missing -api")
 	}
+
 	if len(dir) == 0 {
 		return errors.New("missing -dir")
 	}
 
-	p, err := parser.NewParser(apiFile)
-	if err != nil {
-		return err
+	if len(webAPI) == 0 {
+		webAPI = "."
 	}
-	api, err := p.Parse()
+
+	api, err := parser.Parse(apiFile)
 	if err != nil {
-		fmt.Println(aurora.Red("Failed"))
+		fmt.Println(color.Red.Render("Failed"))
 		return err
 	}
 
-	logx.Must(util.MkdirIfNotExist(dir))
-	logx.Must(genHandler(dir, webApi, caller, api, unwrapApi))
+	if err := api.Validate(); err != nil {
+		return err
+	}
+
+	api.Service = api.Service.JoinPrefix()
+	logx.Must(pathx.MkdirIfNotExist(dir))
+	logx.Must(genRequest(dir))
+	logx.Must(genHandler(dir, webAPI, caller, api, unwrapAPI))
 	logx.Must(genComponents(dir, api))
 
-	fmt.Println(aurora.Green("Done."))
+	fmt.Println(color.Green.Render("Done."))
 	return nil
 }

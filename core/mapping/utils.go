@@ -1,31 +1,43 @@
 package mapping
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/tal-tech/go-zero/core/stringx"
+	"github.com/zeromicro/go-zero/core/lang"
 )
 
 const (
-	defaultOption   = "default"
-	stringOption    = "string"
-	optionalOption  = "optional"
-	optionsOption   = "options"
-	rangeOption     = "range"
-	optionSeparator = "|"
-	equalToken      = "="
+	defaultOption      = "default"
+	envOption          = "env"
+	inheritOption      = "inherit"
+	stringOption       = "string"
+	optionalOption     = "optional"
+	optionsOption      = "options"
+	rangeOption        = "range"
+	optionSeparator    = "|"
+	equalToken         = "="
+	escapeChar         = '\\'
+	leftBracket        = '('
+	rightBracket       = ')'
+	leftSquareBracket  = '['
+	rightSquareBracket = ']'
+	segmentSeparator   = ','
+	intSize            = 32 << (^uint(0) >> 63) // 32 or 64
 )
 
 var (
 	errUnsupportedType  = errors.New("unsupported type on setting field value")
 	errNumberRange      = errors.New("wrong number range setting")
+	errNilSliceElement  = errors.New("null element for slice")
 	optionsCache        = make(map[string]optionsCacheValue)
 	cacheLock           sync.RWMutex
 	structRequiredCache = make(map[reflect.Type]requiredCacheValue)
@@ -45,71 +57,32 @@ type (
 	}
 )
 
+// Deref dereferences a type, if pointer type, returns its element type.
 func Deref(t reflect.Type) reflect.Type {
-	if t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Ptr {
 		t = t.Elem()
 	}
 
 	return t
 }
 
-func Repr(v interface{}) string {
-	if v == nil {
-		return ""
-	}
-
-	// if func (v *Type) String() string, we can't use Elem()
-	switch vt := v.(type) {
-	case fmt.Stringer:
-		return vt.String()
-	}
-
-	val := reflect.ValueOf(v)
-	if val.Kind() == reflect.Ptr && !val.IsNil() {
-		val = val.Elem()
-	}
-
-	switch vt := val.Interface().(type) {
-	case bool:
-		return strconv.FormatBool(vt)
-	case error:
-		return vt.Error()
-	case float32:
-		return strconv.FormatFloat(float64(vt), 'f', -1, 32)
-	case float64:
-		return strconv.FormatFloat(vt, 'f', -1, 64)
-	case fmt.Stringer:
-		return vt.String()
-	case int:
-		return strconv.Itoa(vt)
-	case int8:
-		return strconv.Itoa(int(vt))
-	case int16:
-		return strconv.Itoa(int(vt))
-	case int32:
-		return strconv.Itoa(int(vt))
-	case int64:
-		return strconv.FormatInt(vt, 10)
-	case string:
-		return vt
-	case uint:
-		return strconv.FormatUint(uint64(vt), 10)
-	case uint8:
-		return strconv.FormatUint(uint64(vt), 10)
-	case uint16:
-		return strconv.FormatUint(uint64(vt), 10)
-	case uint32:
-		return strconv.FormatUint(uint64(vt), 10)
-	case uint64:
-		return strconv.FormatUint(vt, 10)
-	case []byte:
-		return string(vt)
-	default:
-		return fmt.Sprint(val.Interface())
-	}
+// Repr returns the string representation of v.
+func Repr(v any) string {
+	return lang.Repr(v)
 }
 
-func ValidatePtr(v *reflect.Value) error {
+// SetValue sets target to value, pointers are processed automatically.
+func SetValue(tp reflect.Type, value, target reflect.Value) {
+	value.Set(convertTypeOfPtr(tp, target))
+}
+
+// SetMapIndexValue sets target to value at key position, pointers are processed automatically.
+func SetMapIndexValue(tp reflect.Type, value, key, target reflect.Value) {
+	value.SetMapIndex(key, convertTypeOfPtr(tp, target))
+}
+
+// ValidatePtr validates v if it's a valid pointer.
+func ValidatePtr(v reflect.Value) error {
 	// sequence is very important, IsNil must be called after checking Kind() with reflect.Ptr,
 	// panic otherwise
 	if !v.IsValid() || v.Kind() != reflect.Ptr || v.IsNil() {
@@ -119,28 +92,49 @@ func ValidatePtr(v *reflect.Value) error {
 	return nil
 }
 
-func convertType(kind reflect.Kind, str string) (interface{}, error) {
+func convertToString(val any, fullName string) (string, error) {
+	v, ok := val.(string)
+	if !ok {
+		return "", fmt.Errorf("expect string for field %s, but got type %T", fullName, val)
+	}
+
+	return v, nil
+}
+
+func convertTypeFromString(kind reflect.Kind, str string) (any, error) {
 	switch kind {
 	case reflect.Bool:
-		return str == "1" || strings.ToLower(str) == "true", nil
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if intValue, err := strconv.ParseInt(str, 10, 64); err != nil {
-			return 0, fmt.Errorf("the value %q cannot parsed as int", str)
-		} else {
-			return intValue, nil
+		if str == "1" || strings.EqualFold(str, "true") {
+			return true, nil
 		}
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if uintValue, err := strconv.ParseUint(str, 10, 64); err != nil {
-			return 0, fmt.Errorf("the value %q cannot parsed as uint", str)
-		} else {
-			return uintValue, nil
+		if str == "0" || strings.EqualFold(str, "false") {
+			return false, nil
 		}
-	case reflect.Float32, reflect.Float64:
-		if floatValue, err := strconv.ParseFloat(str, 64); err != nil {
-			return 0, fmt.Errorf("the value %q cannot parsed as float", str)
-		} else {
-			return floatValue, nil
-		}
+		return false, errTypeMismatch
+	case reflect.Int:
+		return strconv.ParseInt(str, 10, intSize)
+	case reflect.Int8:
+		return strconv.ParseInt(str, 10, 8)
+	case reflect.Int16:
+		return strconv.ParseInt(str, 10, 16)
+	case reflect.Int32:
+		return strconv.ParseInt(str, 10, 32)
+	case reflect.Int64:
+		return strconv.ParseInt(str, 10, 64)
+	case reflect.Uint:
+		return strconv.ParseUint(str, 10, intSize)
+	case reflect.Uint8:
+		return strconv.ParseUint(str, 10, 8)
+	case reflect.Uint16:
+		return strconv.ParseUint(str, 10, 16)
+	case reflect.Uint32:
+		return strconv.ParseUint(str, 10, 32)
+	case reflect.Uint64:
+		return strconv.ParseUint(str, 10, 64)
+	case reflect.Float32:
+		return strconv.ParseFloat(str, 32)
+	case reflect.Float64:
+		return strconv.ParseFloat(str, 64)
 	case reflect.String:
 		return str, nil
 	default:
@@ -148,63 +142,58 @@ func convertType(kind reflect.Kind, str string) (interface{}, error) {
 	}
 }
 
+func convertTypeOfPtr(tp reflect.Type, target reflect.Value) reflect.Value {
+	// keep the original value is a pointer
+	if tp.Kind() == reflect.Ptr && target.CanAddr() {
+		tp = tp.Elem()
+		target = target.Addr()
+	}
+
+	for tp.Kind() == reflect.Ptr {
+		p := reflect.New(target.Type())
+		p.Elem().Set(target)
+		target = p
+		tp = tp.Elem()
+	}
+
+	return target
+}
+
 func doParseKeyAndOptions(field reflect.StructField, value string) (string, *fieldOptions, error) {
-	segments := strings.Split(value, ",")
+	segments := parseSegments(value)
 	key := strings.TrimSpace(segments[0])
 	options := segments[1:]
 
-	if len(options) > 0 {
-		var fieldOpts fieldOptions
-
-		for _, segment := range options {
-			option := strings.TrimSpace(segment)
-			switch {
-			case option == stringOption:
-				fieldOpts.FromString = true
-			case strings.HasPrefix(option, optionalOption):
-				segs := strings.Split(option, equalToken)
-				switch len(segs) {
-				case 1:
-					fieldOpts.Optional = true
-				case 2:
-					fieldOpts.Optional = true
-					fieldOpts.OptionalDep = segs[1]
-				default:
-					return "", nil, fmt.Errorf("field %s has wrong optional", field.Name)
-				}
-			case option == optionalOption:
-				fieldOpts.Optional = true
-			case strings.HasPrefix(option, optionsOption):
-				segs := strings.Split(option, equalToken)
-				if len(segs) != 2 {
-					return "", nil, fmt.Errorf("field %s has wrong options", field.Name)
-				} else {
-					fieldOpts.Options = strings.Split(segs[1], optionSeparator)
-				}
-			case strings.HasPrefix(option, defaultOption):
-				segs := strings.Split(option, equalToken)
-				if len(segs) != 2 {
-					return "", nil, fmt.Errorf("field %s has wrong default option", field.Name)
-				} else {
-					fieldOpts.Default = strings.TrimSpace(segs[1])
-				}
-			case strings.HasPrefix(option, rangeOption):
-				segs := strings.Split(option, equalToken)
-				if len(segs) != 2 {
-					return "", nil, fmt.Errorf("field %s has wrong range", field.Name)
-				}
-				if nr, err := parseNumberRange(segs[1]); err != nil {
-					return "", nil, err
-				} else {
-					fieldOpts.Range = nr
-				}
-			}
-		}
-
-		return key, &fieldOpts, nil
+	if len(options) == 0 {
+		return key, nil, nil
 	}
 
-	return key, nil, nil
+	var fieldOpts fieldOptions
+	for _, segment := range options {
+		option := strings.TrimSpace(segment)
+		if err := parseOption(&fieldOpts, field.Name, option); err != nil {
+			return "", nil, err
+		}
+	}
+
+	return key, &fieldOpts, nil
+}
+
+// ensureValue ensures nested members not to be nil.
+// If pointer value is nil, set to a new value.
+func ensureValue(v reflect.Value) reflect.Value {
+	for {
+		if v.Kind() != reflect.Ptr {
+			break
+		}
+
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		v = v.Elem()
+	}
+
+	return v
 }
 
 func implicitValueRequiredStruct(tag string, tp reflect.Type) (bool, error) {
@@ -240,15 +229,47 @@ func implicitValueRequiredStruct(tag string, tp reflect.Type) (bool, error) {
 	return false, nil
 }
 
-func maybeNewValue(field reflect.StructField, value reflect.Value) {
-	if field.Type.Kind() == reflect.Ptr && value.IsNil() {
+func isLeftInclude(b byte) (bool, error) {
+	switch b {
+	case '[':
+		return true, nil
+	case '(':
+		return false, nil
+	default:
+		return false, errNumberRange
+	}
+}
+
+func isRightInclude(b byte) (bool, error) {
+	switch b {
+	case ']':
+		return true, nil
+	case ')':
+		return false, nil
+	default:
+		return false, errNumberRange
+	}
+}
+
+func maybeNewValue(fieldType reflect.Type, value reflect.Value) {
+	if fieldType.Kind() == reflect.Ptr && value.IsNil() {
 		value.Set(reflect.New(value.Type().Elem()))
 	}
 }
 
+func parseGroupedSegments(val string) []string {
+	val = strings.TrimLeftFunc(val, func(r rune) bool {
+		return r == leftBracket || r == leftSquareBracket
+	})
+	val = strings.TrimRightFunc(val, func(r rune) bool {
+		return r == rightBracket || r == rightSquareBracket
+	})
+	return parseSegments(val)
+}
+
 // don't modify returned fieldOptions, it's cached and shared among different calls.
 func parseKeyAndOptions(tagName string, field reflect.StructField) (string, *fieldOptions, error) {
-	value := field.Tag.Get(tagName)
+	value := strings.TrimSpace(field.Tag.Get(tagName))
 	if len(value) == 0 {
 		return field.Name, nil, nil
 	}
@@ -257,7 +278,7 @@ func parseKeyAndOptions(tagName string, field reflect.StructField) (string, *fie
 	cache, ok := optionsCache[value]
 	cacheLock.RUnlock()
 	if ok {
-		return stringx.TakeOne(cache.key, field.Name), cache.options, cache.err
+		return cmp.Or(cache.key, field.Name), cache.options, cache.err
 	}
 
 	key, options, err := doParseKeyAndOptions(field, value)
@@ -269,7 +290,7 @@ func parseKeyAndOptions(tagName string, field reflect.StructField) (string, *fie
 	}
 	cacheLock.Unlock()
 
-	return stringx.TakeOne(key, field.Name), options, err
+	return cmp.Or(key, field.Name), options, err
 }
 
 // support below notations:
@@ -281,14 +302,9 @@ func parseNumberRange(str string) (*numberRange, error) {
 		return nil, errNumberRange
 	}
 
-	var leftInclude bool
-	switch str[0] {
-	case '[':
-		leftInclude = true
-	case '(':
-		leftInclude = false
-	default:
-		return nil, errNumberRange
+	leftInclude, err := isLeftInclude(str[0])
+	if err != nil {
+		return nil, err
 	}
 
 	str = str[1:]
@@ -296,14 +312,9 @@ func parseNumberRange(str string) (*numberRange, error) {
 		return nil, errNumberRange
 	}
 
-	var rightInclude bool
-	switch str[len(str)-1] {
-	case ']':
-		rightInclude = true
-	case ')':
-		rightInclude = false
-	default:
-		return nil, errNumberRange
+	rightInclude, err := isRightInclude(str[len(str)-1])
+	if err != nil {
+		return nil, err
 	}
 
 	str = str[:len(str)-1]
@@ -336,6 +347,20 @@ func parseNumberRange(str string) (*numberRange, error) {
 		right = math.MaxFloat64
 	}
 
+	if left > right {
+		return nil, errNumberRange
+	}
+
+	// [2:2] valid
+	// [2:2) invalid
+	// (2:2] invalid
+	// (2:2) invalid
+	if left == right {
+		if !leftInclude || !rightInclude {
+			return nil, errNumberRange
+		}
+	}
+
 	return &numberRange{
 		left:         left,
 		leftInclude:  leftInclude,
@@ -344,31 +369,162 @@ func parseNumberRange(str string) (*numberRange, error) {
 	}, nil
 }
 
-func setMatchedPrimitiveValue(kind reflect.Kind, value reflect.Value, v interface{}) error {
-	switch kind {
-	case reflect.Bool:
-		value.SetBool(v.(bool))
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		value.SetInt(v.(int64))
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		value.SetUint(v.(uint64))
-	case reflect.Float32, reflect.Float64:
-		value.SetFloat(v.(float64))
-	case reflect.String:
-		value.SetString(v.(string))
-	default:
-		return errUnsupportedType
+func parseOption(fieldOpts *fieldOptions, fieldName, option string) error {
+	switch {
+	case option == inheritOption:
+		fieldOpts.Inherit = true
+	case option == stringOption:
+		fieldOpts.FromString = true
+	case strings.HasPrefix(option, optionalOption):
+		segs := strings.Split(option, equalToken)
+		switch len(segs) {
+		case 1:
+			fieldOpts.Optional = true
+		case 2:
+			fieldOpts.Optional = true
+			fieldOpts.OptionalDep = segs[1]
+		default:
+			return fmt.Errorf("field %q has wrong optional", fieldName)
+		}
+	case strings.HasPrefix(option, optionsOption):
+		val, err := parseProperty(fieldName, optionsOption, option)
+		if err != nil {
+			return err
+		}
+
+		fieldOpts.Options = parseOptions(val)
+	case strings.HasPrefix(option, defaultOption):
+		val, err := parseProperty(fieldName, defaultOption, option)
+		if err != nil {
+			return err
+		}
+
+		fieldOpts.Default = val
+	case strings.HasPrefix(option, envOption):
+		val, err := parseProperty(fieldName, envOption, option)
+		if err != nil {
+			return err
+		}
+
+		fieldOpts.EnvVar = val
+	case strings.HasPrefix(option, rangeOption):
+		val, err := parseProperty(fieldName, rangeOption, option)
+		if err != nil {
+			return err
+		}
+
+		nr, err := parseNumberRange(val)
+		if err != nil {
+			return err
+		}
+
+		fieldOpts.Range = nr
 	}
 
 	return nil
 }
 
-func setValue(kind reflect.Kind, value reflect.Value, str string) error {
+// parseOptions parses the given options in tag.
+// for example, `json:"name,options=foo|bar"` or `json:"name,options=[foo,bar]"`
+func parseOptions(val string) []string {
+	if len(val) == 0 {
+		return nil
+	}
+
+	if val[0] == leftSquareBracket {
+		return parseGroupedSegments(val)
+	}
+
+	return strings.Split(val, optionSeparator)
+}
+
+func parseProperty(field, tag, val string) (string, error) {
+	segs := strings.Split(val, equalToken)
+	if len(segs) != 2 {
+		return "", fmt.Errorf("field %q has wrong tag value %q", field, tag)
+	}
+
+	return strings.TrimSpace(segs[1]), nil
+}
+
+func parseSegments(val string) []string {
+	var segments []string
+	var escaped, grouped bool
+	var buf strings.Builder
+
+	for _, ch := range val {
+		if escaped {
+			buf.WriteRune(ch)
+			escaped = false
+			continue
+		}
+
+		switch ch {
+		case segmentSeparator:
+			if grouped {
+				buf.WriteRune(ch)
+			} else {
+				// need to trim spaces, but we cannot ignore empty string,
+				// because the first segment stands for the key might be empty.
+				// if ignored, the later tag will be used as the key.
+				segments = append(segments, strings.TrimSpace(buf.String()))
+				buf.Reset()
+			}
+		case escapeChar:
+			if grouped {
+				buf.WriteRune(ch)
+			} else {
+				escaped = true
+			}
+		case leftBracket, leftSquareBracket:
+			buf.WriteRune(ch)
+			grouped = true
+		case rightBracket, rightSquareBracket:
+			buf.WriteRune(ch)
+			grouped = false
+		default:
+			buf.WriteRune(ch)
+		}
+	}
+
+	last := strings.TrimSpace(buf.String())
+	// ignore last empty string
+	if len(last) > 0 {
+		segments = append(segments, last)
+	}
+
+	return segments
+}
+
+func setMatchedPrimitiveValue(kind reflect.Kind, value reflect.Value, v any) error {
+	switch kind {
+	case reflect.Bool:
+		value.SetBool(v.(bool))
+		return nil
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		value.SetInt(v.(int64))
+		return nil
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		value.SetUint(v.(uint64))
+		return nil
+	case reflect.Float32, reflect.Float64:
+		value.SetFloat(v.(float64))
+		return nil
+	case reflect.String:
+		value.SetString(v.(string))
+		return nil
+	default:
+		return errUnsupportedType
+	}
+}
+
+func setValueFromString(kind reflect.Kind, value reflect.Value, str string) error {
 	if !value.CanSet() {
 		return errValueNotSettable
 	}
 
-	v, err := convertType(kind, str)
+	value = ensureValue(value)
+	v, err := convertTypeFromString(kind, str)
 	if err != nil {
 		return err
 	}
@@ -395,7 +551,7 @@ func structValueRequired(tag string, tp reflect.Type) (bool, error) {
 	return required, err
 }
 
-func toFloat64(v interface{}) (float64, bool) {
+func toFloat64(v any) (float64, bool) {
 	switch val := v.(type) {
 	case int:
 		return float64(val), true
@@ -426,6 +582,10 @@ func toFloat64(v interface{}) (float64, bool) {
 	}
 }
 
+func toReflectValue(tp reflect.Type, v any) reflect.Value {
+	return reflect.ValueOf(v).Convert(Deref(tp))
+}
+
 func usingDifferentKeys(key string, field reflect.StructField) bool {
 	if len(field.Tag) > 0 {
 		if _, ok := field.Tag.Lookup(key); !ok {
@@ -436,12 +596,13 @@ func usingDifferentKeys(key string, field reflect.StructField) bool {
 	return false
 }
 
-func validateAndSetValue(kind reflect.Kind, value reflect.Value, str string, opts *fieldOptionsWithContext) error {
+func validateAndSetValue(kind reflect.Kind, value reflect.Value, str string,
+	opts *fieldOptionsWithContext) error {
 	if !value.CanSet() {
 		return errValueNotSettable
 	}
 
-	v, err := convertType(kind, str)
+	v, err := convertTypeFromString(kind, str)
 	if err != nil {
 		return err
 	}
@@ -482,16 +643,16 @@ func validateNumberRange(fv float64, nr *numberRange) error {
 	return nil
 }
 
-func validateValueInOptions(options []string, value interface{}) error {
+func validateValueInOptions(val any, options []string) error {
 	if len(options) > 0 {
-		switch v := value.(type) {
+		switch v := val.(type) {
 		case string:
-			if !stringx.Contains(options, v) {
-				return fmt.Errorf(`error: value "%s" is not defined in options "%v"`, v, options)
+			if !slices.Contains(options, v) {
+				return fmt.Errorf(`error: value %q is not defined in options "%v"`, v, options)
 			}
 		default:
-			if !stringx.Contains(options, Repr(v)) {
-				return fmt.Errorf(`error: value "%v" is not defined in options "%v"`, value, options)
+			if !slices.Contains(options, Repr(v)) {
+				return fmt.Errorf(`error: value "%v" is not defined in options "%v"`, val, options)
 			}
 		}
 	}
@@ -499,7 +660,7 @@ func validateValueInOptions(options []string, value interface{}) error {
 	return nil
 }
 
-func validateValueRange(mapValue interface{}, opts *fieldOptionsWithContext) error {
+func validateValueRange(mapValue any, opts *fieldOptionsWithContext) error {
 	if opts == nil || opts.Range == nil {
 		return nil
 	}

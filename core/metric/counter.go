@@ -2,14 +2,18 @@ package metric
 
 import (
 	prom "github.com/prometheus/client_golang/prometheus"
-	"github.com/tal-tech/go-zero/core/proc"
+	"github.com/zeromicro/go-zero/core/proc"
 )
 
 type (
+	// A CounterVecOpts is an alias of VectorOpts.
 	CounterVecOpts VectorOpts
 
+	// CounterVec interface represents a counter vector.
 	CounterVec interface {
-		Inc(lables ...string)
+		// Inc increments labels.
+		Inc(labels ...string)
+		// Add adds labels with v.
 		Add(v float64, labels ...string)
 		close() bool
 	}
@@ -19,6 +23,7 @@ type (
 	}
 )
 
+// NewCounterVec returns a CounterVec.
 func NewCounterVec(cfg *CounterVecOpts) CounterVec {
 	if cfg == nil {
 		return nil
@@ -41,12 +46,16 @@ func NewCounterVec(cfg *CounterVecOpts) CounterVec {
 	return cv
 }
 
-func (cv *promCounterVec) Inc(labels ...string) {
-	cv.counter.WithLabelValues(labels...).Inc()
+func (cv *promCounterVec) Add(v float64, labels ...string) {
+	update(func() {
+		cv.counter.WithLabelValues(labels...).Add(v)
+	})
 }
 
-func (cv *promCounterVec) Add(v float64, lables ...string) {
-	cv.counter.WithLabelValues(lables...).Add(v)
+func (cv *promCounterVec) Inc(labels ...string) {
+	update(func() {
+		cv.counter.WithLabelValues(labels...).Inc()
+	})
 }
 
 func (cv *promCounterVec) close() bool {

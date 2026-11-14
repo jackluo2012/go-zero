@@ -2,74 +2,102 @@ package dartgen
 
 import (
 	"os"
+	"strings"
 	"text/template"
 
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
 )
 
 const apiTemplate = `import 'api.dart';
-import '../data/{{with .Info}}{{.Title}}{{end}}.dart';
+import '../data/{{with .Info}}{{getBaseName .Title}}{{end}}.dart';
 {{with .Service}}
 /// {{.Name}}
 {{range .Routes}}
 /// --{{.Path}}--
 ///
-/// 请求: {{with .RequestType}}{{.Name}}{{end}}
-/// 返回: {{with .ResponseType}}{{.Name}}{{end}}
+/// request: {{with .RequestType}}{{.Name}}{{end}}
+/// response: {{with .ResponseType}}{{.Name}}{{end}}
 Future {{pathToFuncName .Path}}( {{if ne .Method "get"}}{{with .RequestType}}{{.Name}} request,{{end}}{{end}}
     {Function({{with .ResponseType}}{{.Name}}{{end}}) ok,
     Function(String) fail,
     Function eventually}) async {
   await api{{if eq .Method "get"}}Get{{else}}Post{{end}}('{{.Path}}',{{if ne .Method "get"}}request,{{end}}
   	 ok: (data) {
-    if (ok != null) ok({{with .ResponseType}}{{.Name}}{{end}}.fromJson(data));
+    if (ok != null) ok({{with .ResponseType}}{{.Name}}.fromJson(data){{end}});
   }, fail: fail, eventually: eventually);
 }
 {{end}}
 {{end}}`
 
-func genApi(dir string, api *spec.ApiSpec) error {
-	e := os.MkdirAll(dir, 0755)
-	if e != nil {
-		logx.Error(e)
-		return e
-	}
-	e = genApiFile(dir)
-	if e != nil {
-		logx.Error(e)
-		return e
+const apiTemplateV2 = `import 'api.dart';
+import '../data/{{with .Service}}{{.Name}}{{end}}.dart';
+{{with .Service}}
+/// {{.Name}}
+{{range $i, $Route := .Routes}}
+/// --{{.Path}}--
+///
+/// request: {{with .RequestType}}{{.Name}}{{end}}
+/// response: {{with .ResponseType}}{{.Name}}{{end}}
+Future {{normalizeHandlerName .Handler}}(
+	{{if hasUrlPathParams $Route}}{{extractPositionalParamsFromPath $Route}},{{end}}
+	{{if ne .Method "get"}}{{with .RequestType}}{{.Name}} request,{{end}}{{end}}
+    {Function({{with .ResponseType}}{{.Name}}{{end}})? ok,
+    Function(String)? fail,
+    Function? eventually}) async {
+  await api{{if eq .Method "get"}}Get{{else}}Post{{end}}({{makeDartRequestUrlPath $Route}},{{if ne .Method "get"}}request,{{end}}
+  	 ok: (data) {
+    if (ok != null) ok({{with .ResponseType}}{{.Name}}.fromJson(data){{end}});
+  }, fail: fail, eventually: eventually);
+}
+{{end}}
+{{end}}`
+
+func genApi(dir string, api *spec.ApiSpec, isLegacy bool) error {
+	err := os.MkdirAll(dir, 0o755)
+	if err != nil {
+		return err
 	}
 
-	file, e := os.OpenFile(dir+api.Info.Title+".dart", os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if e != nil {
-		logx.Error(e)
-		return e
+	err = genApiFile(dir, isLegacy)
+	if err != nil {
+		return err
 	}
+
+	file, err := os.OpenFile(dir+strings.ToLower(api.Service.Name+".dart"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+
 	defer file.Close()
-
 	t := template.New("apiTemplate")
 	t = t.Funcs(funcMap)
-	t, e = t.Parse(apiTemplate)
-	if e != nil {
-		logx.Error(e)
-		return e
+	tpl := apiTemplateV2
+	if isLegacy {
+		tpl = apiTemplate
 	}
-	t.Execute(file, api)
-	return nil
+	t, err = t.Parse(tpl)
+	if err != nil {
+		return err
+	}
+
+	return t.Execute(file, api)
 }
 
-func genApiFile(dir string) error {
+func genApiFile(dir string, isLegacy bool) error {
 	path := dir + "api.dart"
 	if fileExists(path) {
 		return nil
 	}
-	apiFile, e := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0644)
-	if e != nil {
-		logx.Error(e)
-		return e
+	apiFile, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
 	}
+
 	defer apiFile.Close()
-	apiFile.WriteString(apiFileContent)
-	return nil
+	tpl := apiFileContentV2
+	if isLegacy {
+		tpl = apiFileContent
+	}
+	_, err = apiFile.WriteString(tpl)
+	return err
 }

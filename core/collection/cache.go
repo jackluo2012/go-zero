@@ -6,9 +6,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/core/mathx"
-	"github.com/tal-tech/go-zero/core/syncx"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/mathx"
+	"github.com/zeromicro/go-zero/core/syncx"
 )
 
 const (
@@ -23,28 +23,30 @@ const (
 var emptyLruCache = emptyLru{}
 
 type (
+	// CacheOption defines the method to customize a Cache.
 	CacheOption func(cache *Cache)
 
+	// A Cache object is an in-memory cache.
 	Cache struct {
 		name           string
 		lock           sync.Mutex
-		data           map[string]interface{}
-		evicts         *list.List
+		data           map[string]any
 		expire         time.Duration
 		timingWheel    *TimingWheel
 		lruCache       lru
-		barrier        syncx.SharedCalls
+		barrier        syncx.SingleFlight
 		unstableExpiry mathx.Unstable
 		stats          *cacheStat
 	}
 )
 
+// NewCache returns a Cache with given expire.
 func NewCache(expire time.Duration, opts ...CacheOption) (*Cache, error) {
 	cache := &Cache{
-		data:           make(map[string]interface{}),
+		data:           make(map[string]any),
 		expire:         expire,
 		lruCache:       emptyLruCache,
-		barrier:        syncx.NewSharedCalls(),
+		barrier:        syncx.NewSingleFlight(),
 		unstableExpiry: mathx.NewUnstable(expiryDeviation),
 	}
 
@@ -57,7 +59,7 @@ func NewCache(expire time.Duration, opts ...CacheOption) (*Cache, error) {
 	}
 	cache.stats = newCacheStat(cache.name, cache.size)
 
-	timingWheel, err := NewTimingWheel(time.Second, slots, func(k, v interface{}) {
+	timingWheel, err := NewTimingWheel(time.Second, slots, func(k, v any) {
 		key, ok := k.(string)
 		if !ok {
 			return
@@ -73,21 +75,22 @@ func NewCache(expire time.Duration, opts ...CacheOption) (*Cache, error) {
 	return cache, nil
 }
 
+// Del deletes the item with the given key from c.
 func (c *Cache) Del(key string) {
 	c.lock.Lock()
 	delete(c.data, key)
 	c.lruCache.remove(key)
 	c.lock.Unlock()
+
+	// RemoveTimer is called outside the lock to avoid performance impact from this
+	// potentially time-consuming operation. Data integrity is maintained by lruCache,
+	// which will eventually evict any remaining entries when capacity is exceeded.
 	c.timingWheel.RemoveTimer(key)
 }
 
-func (c *Cache) Get(key string) (interface{}, bool) {
-	c.lock.Lock()
-	value, ok := c.data[key]
-	if ok {
-		c.lruCache.add(key)
-	}
-	c.lock.Unlock()
+// Get returns the item with the given key from c.
+func (c *Cache) Get(key string) (any, bool) {
+	value, ok := c.doGet(key)
 	if ok {
 		c.stats.IncrementHit()
 	} else {
@@ -97,14 +100,20 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	return value, ok
 }
 
-func (c *Cache) Set(key string, value interface{}) {
+// Set sets value into c with key.
+func (c *Cache) Set(key string, value any) {
+	c.SetWithExpire(key, value, c.expire)
+}
+
+// SetWithExpire sets value into c with key and expire with the given value.
+func (c *Cache) SetWithExpire(key string, value any, expire time.Duration) {
 	c.lock.Lock()
 	_, ok := c.data[key]
 	c.data[key] = value
 	c.lruCache.add(key)
 	c.lock.Unlock()
 
-	expiry := c.unstableExpiry.AroundDuration(c.expire)
+	expiry := c.unstableExpiry.AroundDuration(expire)
 	if ok {
 		c.timingWheel.MoveTimer(key, expiry)
 	} else {
@@ -112,13 +121,29 @@ func (c *Cache) Set(key string, value interface{}) {
 	}
 }
 
-func (c *Cache) Take(key string, fetch func() (interface{}, error)) (interface{}, error) {
-	val, fresh, err := c.barrier.DoEx(key, func() (interface{}, error) {
+// Take returns the item with the given key.
+// If the item is in c, return it directly.
+// If not, use fetch method to get the item, set into c and return it.
+func (c *Cache) Take(key string, fetch func() (any, error)) (any, error) {
+	if val, ok := c.doGet(key); ok {
+		c.stats.IncrementHit()
+		return val, nil
+	}
+
+	var fresh bool
+	val, err := c.barrier.Do(key, func() (any, error) {
+		// because O(1) on map search in memory, and fetch is an IO query,
+		// so we do double-check, cache might be taken by another call
+		if val, ok := c.doGet(key); ok {
+			return val, nil
+		}
+
 		v, e := fetch()
 		if e != nil {
 			return nil, e
 		}
 
+		fresh = true
 		c.Set(key, v)
 		return v, nil
 	})
@@ -129,12 +154,23 @@ func (c *Cache) Take(key string, fetch func() (interface{}, error)) (interface{}
 	if fresh {
 		c.stats.IncrementMiss()
 		return val, nil
-	} else {
-		// got the result from previous ongoing query
-		c.stats.IncrementHit()
 	}
 
+	// got the result from previous ongoing query
+	c.stats.IncrementHit()
 	return val, nil
+}
+
+func (c *Cache) doGet(key string) (any, bool) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	value, ok := c.data[key]
+	if ok {
+		c.lruCache.add(key)
+	}
+
+	return value, ok
 }
 
 func (c *Cache) onEvict(key string) {
@@ -149,6 +185,7 @@ func (c *Cache) size() int {
 	return len(c.data)
 }
 
+// WithLimit customizes a Cache with items up to limit.
 func WithLimit(limit int) CacheOption {
 	return func(cache *Cache) {
 		if limit > 0 {
@@ -157,6 +194,7 @@ func WithLimit(limit int) CacheOption {
 	}
 }
 
+// WithName customizes a Cache with the given name.
 func WithName(name string) CacheOption {
 	return func(cache *Cache) {
 		cache.name = name
@@ -258,18 +296,15 @@ func (cs *cacheStat) statLoop() {
 	ticker := time.NewTicker(statInterval)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			hit := atomic.SwapUint64(&cs.hit, 0)
-			miss := atomic.SwapUint64(&cs.miss, 0)
-			total := hit + miss
-			if total == 0 {
-				continue
-			}
-			percent := 100 * float32(hit) / float32(total)
-			logx.Statf("cache(%s) - qpm: %d, hit_ratio: %.1f%%, elements: %d, hit: %d, miss: %d",
-				cs.name, total, percent, cs.sizeCallback(), hit, miss)
+	for range ticker.C {
+		hit := atomic.SwapUint64(&cs.hit, 0)
+		miss := atomic.SwapUint64(&cs.miss, 0)
+		total := hit + miss
+		if total == 0 {
+			continue
 		}
+		percent := 100 * float32(hit) / float32(total)
+		logx.Statf("cache(%s) - qpm: %d, hit_ratio: %.1f%%, elements: %d, hit: %d, miss: %d",
+			cs.name, total, percent, cs.sizeCallback(), hit, miss)
 	}
 }

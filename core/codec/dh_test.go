@@ -71,3 +71,55 @@ func TestDiffieHellmanMiddleManAttack(t *testing.T) {
 	assert.Nil(t, err)
 	assert.Equal(t, string(src), string(decryptedSrc))
 }
+
+func TestKeyBytes(t *testing.T) {
+	var empty DhKey
+	assert.Equal(t, 0, len(empty.Bytes()))
+
+	key, err := GenerateKey()
+	assert.Nil(t, err)
+	assert.True(t, len(key.Bytes()) > 0)
+}
+
+func TestDHOnErrors(t *testing.T) {
+	key, err := GenerateKey()
+	assert.Nil(t, err)
+	assert.NotEmpty(t, key.Bytes())
+	_, err = ComputeKey(key.PubKey, key.PriKey)
+	assert.NoError(t, err)
+	_, err = ComputeKey(nil, key.PriKey)
+	assert.Error(t, err)
+	_, err = ComputeKey(key.PubKey, nil)
+	assert.Error(t, err)
+
+	assert.NotNil(t, NewPublicKey([]byte("")))
+}
+
+func TestDHPubKeyBoundary(t *testing.T) {
+	key, err := GenerateKey()
+	assert.Nil(t, err)
+
+	// pubKey = 0 should be rejected
+	_, err = ComputeKey(big.NewInt(0), key.PriKey)
+	assert.ErrorIs(t, err, ErrPubKeyOutOfBound)
+
+	// pubKey = -1 should be rejected
+	_, err = ComputeKey(big.NewInt(-1), key.PriKey)
+	assert.ErrorIs(t, err, ErrPubKeyOutOfBound)
+
+	// pubKey = p should be rejected
+	_, err = ComputeKey(new(big.Int).Set(p), key.PriKey)
+	assert.ErrorIs(t, err, ErrPubKeyOutOfBound)
+
+	// pubKey = p+1 should be rejected
+	_, err = ComputeKey(new(big.Int).Add(p, big.NewInt(1)), key.PriKey)
+	assert.ErrorIs(t, err, ErrPubKeyOutOfBound)
+
+	// pubKey = 1 should be accepted
+	_, err = ComputeKey(big.NewInt(1), key.PriKey)
+	assert.NoError(t, err)
+
+	// pubKey = p-1 should be accepted
+	_, err = ComputeKey(new(big.Int).Sub(p, big.NewInt(1)), key.PriKey)
+	assert.NoError(t, err)
+}

@@ -4,18 +4,26 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/tal-tech/go-zero/core/codec"
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/rest/httpx"
-	"github.com/tal-tech/go-zero/rest/internal/security"
+	"github.com/zeromicro/go-zero/core/codec"
+	"github.com/zeromicro/go-zero/core/logc"
+	"github.com/zeromicro/go-zero/rest/httpx"
+	"github.com/zeromicro/go-zero/rest/internal/security"
 )
 
 const contentSecurity = "X-Content-Security"
 
+// UnsignedCallback defines the method of the unsigned callback.
 type UnsignedCallback func(w http.ResponseWriter, r *http.Request, next http.Handler, strict bool, code int)
 
+// ContentSecurityHandler returns a middleware to verify content security.
 func ContentSecurityHandler(decrypters map[string]codec.RsaDecrypter, tolerance time.Duration,
 	strict bool, callbacks ...UnsignedCallback) func(http.Handler) http.Handler {
+	return LimitContentSecurityHandler(maxBytes, decrypters, tolerance, strict, callbacks...)
+}
+
+// LimitContentSecurityHandler returns a middleware to verify content security.
+func LimitContentSecurityHandler(limitBytes int64, decrypters map[string]codec.RsaDecrypter,
+	tolerance time.Duration, strict bool, callbacks ...UnsignedCallback) func(http.Handler) http.Handler {
 	if len(callbacks) == 0 {
 		callbacks = append(callbacks, handleVerificationFailure)
 	}
@@ -26,15 +34,15 @@ func ContentSecurityHandler(decrypters map[string]codec.RsaDecrypter, tolerance 
 			case http.MethodDelete, http.MethodGet, http.MethodPost, http.MethodPut:
 				header, err := security.ParseContentSecurity(decrypters, r)
 				if err != nil {
-					logx.Infof("Signature parse failed, X-Content-Security: %s, error: %s",
+					logc.Errorf(r.Context(), "Signature parse failed, X-Content-Security: %s, error: %s",
 						r.Header.Get(contentSecurity), err.Error())
 					executeCallbacks(w, r, next, strict, httpx.CodeSignatureInvalidHeader, callbacks)
 				} else if code := security.VerifySignature(r, header, tolerance); code != httpx.CodeSignaturePass {
-					logx.Infof("Signature verification failed, X-Content-Security: %s",
+					logc.Errorf(r.Context(), "Signature verification failed, X-Content-Security: %s",
 						r.Header.Get(contentSecurity))
 					executeCallbacks(w, r, next, strict, code, callbacks)
 				} else if r.ContentLength > 0 && header.Encrypted() {
-					CryptionHandler(header.Key)(next).ServeHTTP(w, r)
+					LimitCryptionHandler(limitBytes, header.Key)(next).ServeHTTP(w, r)
 				} else {
 					next.ServeHTTP(w, r)
 				}
@@ -52,9 +60,10 @@ func executeCallbacks(w http.ResponseWriter, r *http.Request, next http.Handler,
 	}
 }
 
-func handleVerificationFailure(w http.ResponseWriter, r *http.Request, next http.Handler, strict bool, code int) {
+func handleVerificationFailure(w http.ResponseWriter, r *http.Request, next http.Handler,
+	strict bool, _ int) {
 	if strict {
-		w.WriteHeader(http.StatusUnauthorized)
+		w.WriteHeader(http.StatusForbidden)
 	} else {
 		next.ServeHTTP(w, r)
 	}

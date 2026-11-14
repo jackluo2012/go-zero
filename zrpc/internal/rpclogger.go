@@ -1,73 +1,81 @@
 package internal
 
 import (
-	"sync"
-
-	"github.com/tal-tech/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/logx"
 	"google.golang.org/grpc/grpclog"
 )
 
 // because grpclog.errorLog is not exported, we need to define our own.
 const errorLevel = 2
 
-var once sync.Once
-
+// A Logger is a rpc logger.
 type Logger struct{}
 
-func InitLogger() {
-	once.Do(func() {
-		grpclog.SetLoggerV2(new(Logger))
-	})
+func init() {
+	grpclog.SetLoggerV2(new(Logger))
 }
 
-func (l *Logger) Error(args ...interface{}) {
+// Error logs the given args into error log.
+func (l *Logger) Error(args ...any) {
 	logx.Error(args...)
 }
 
-func (l *Logger) Errorf(format string, args ...interface{}) {
+// Errorf logs the given args with format into error log.
+func (l *Logger) Errorf(format string, args ...any) {
 	logx.Errorf(format, args...)
 }
 
-func (l *Logger) Errorln(args ...interface{}) {
+// Errorln logs the given args into error log with newline.
+func (l *Logger) Errorln(args ...any) {
 	logx.Error(args...)
 }
 
-func (l *Logger) Fatal(args ...interface{}) {
+// Fatal logs the given args into error log.
+func (l *Logger) Fatal(args ...any) {
 	logx.Error(args...)
 }
 
-func (l *Logger) Fatalf(format string, args ...interface{}) {
+// Fatalf logs the given args with format into error log.
+func (l *Logger) Fatalf(format string, args ...any) {
 	logx.Errorf(format, args...)
 }
 
-func (l *Logger) Fatalln(args ...interface{}) {
+// Fatalln logs args into error log with newline.
+func (l *Logger) Fatalln(args ...any) {
 	logx.Error(args...)
 }
 
-func (l *Logger) Info(args ...interface{}) {
+// Info ignores the grpc info logs.
+func (l *Logger) Info(_ ...any) {
 	// ignore builtin grpc info
 }
 
-func (l *Logger) Infoln(args ...interface{}) {
+// Infoln ignores the grpc info logs.
+func (l *Logger) Infoln(_ ...any) {
 	// ignore builtin grpc info
 }
 
-func (l *Logger) Infof(format string, args ...interface{}) {
+// Infof ignores the grpc info logs.
+func (l *Logger) Infof(_ string, _ ...any) {
 	// ignore builtin grpc info
 }
 
+// V checks if meet required log level.
 func (l *Logger) V(v int) bool {
 	return v >= errorLevel
 }
 
-func (l *Logger) Warning(args ...interface{}) {
+// Warning ignores the grpc warning logs.
+func (l *Logger) Warning(_ ...any) {
 	// ignore builtin grpc warning
 }
 
-func (l *Logger) Warningln(args ...interface{}) {
+// Warningf ignores the grpc warning logs.
+func (l *Logger) Warningf(_ string, _ ...any) {
 	// ignore builtin grpc warning
 }
 
-func (l *Logger) Warningf(format string, args ...interface{}) {
+// Warningln ignores the grpc warning logs.
+func (l *Logger) Warningln(_ ...any) {
 	// ignore builtin grpc warning
 }

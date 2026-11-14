@@ -7,47 +7,60 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/api/parser"
-	"github.com/urfave/cli"
+	"github.com/spf13/cobra"
+	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
-var docDir = "doc"
+var (
+	// VarStringDir describes a directory.
+	VarStringDir string
+	// VarStringOutput describes an output directory.
+	VarStringOutput string
+)
 
-func DocCommand(c *cli.Context) error {
-	dir := c.String("dir")
+// DocCommand generate Markdown doc file
+func DocCommand(_ *cobra.Command, _ []string) error {
+	dir := VarStringDir
 	if len(dir) == 0 {
 		return errors.New("missing -dir")
 	}
 
-	files, err := filePathWalkDir(dir)
-	if err != nil {
-		return errors.New(fmt.Sprintf("dir %s not exist", dir))
-	}
-
-	err = os.RemoveAll(dir + "/" + docDir + "/")
-	if err != nil {
-		return err
-	}
-	for _, f := range files {
-		p, err := parser.NewParser(f)
-		if err != nil {
-			return errors.New(fmt.Sprintf("parse file: %s, err: %s", f, err.Error()))
-		}
-		api, err := p.Parse()
+	outputDir := VarStringOutput
+	if len(outputDir) == 0 {
+		var err error
+		outputDir, err = os.Getwd()
 		if err != nil {
 			return err
 		}
-		index := strings.Index(f, dir)
-		if index < 0 {
-			continue
+	}
+
+	if !pathx.FileExists(dir) {
+		return fmt.Errorf("dir %s not exist", dir)
+	}
+
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+
+	files, err := filePathWalkDir(dir)
+	if err != nil {
+		return err
+	}
+
+	for _, p := range files {
+		api, err := parser.Parse(p)
+		if err != nil {
+			return fmt.Errorf("parse file: %s, err: %w", p, err)
 		}
-		dst := dir + "/" + docDir + f[index+len(dir):]
-		index = strings.LastIndex(dst, "/")
-		if index < 0 {
-			continue
+
+		api.Service = api.Service.JoinPrefix()
+		err = genDoc(api, filepath.Dir(filepath.Join(outputDir, p[len(dir):])),
+			strings.Replace(p[len(filepath.Dir(p)):], ".api", ".md", 1))
+		if err != nil {
+			return err
 		}
-		dir := dst[:index]
-		genDoc(api, dir, strings.Replace(dst[index+1:], ".api", ".md", 1))
 	}
 	return nil
 }

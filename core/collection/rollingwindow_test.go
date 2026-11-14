@@ -6,17 +6,30 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/tal-tech/go-zero/core/stringx"
+	"github.com/zeromicro/go-zero/core/stringx"
 )
 
 const duration = time.Millisecond * 50
 
+func TestNewRollingWindow(t *testing.T) {
+	assert.NotNil(t, NewRollingWindow[int64, *Bucket[int64]](func() *Bucket[int64] {
+		return new(Bucket[int64])
+	}, 10, time.Second))
+	assert.Panics(t, func() {
+		NewRollingWindow[int64, *Bucket[int64]](func() *Bucket[int64] {
+			return new(Bucket[int64])
+		}, 0, time.Second)
+	})
+}
+
 func TestRollingWindowAdd(t *testing.T) {
 	const size = 3
-	r := NewRollingWindow(size, duration)
+	r := NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+		return new(Bucket[float64])
+	}, size, duration)
 	listBuckets := func() []float64 {
 		var buckets []float64
-		r.Reduce(func(b *Bucket) {
+		r.Reduce(func(b *Bucket[float64]) {
 			buckets = append(buckets, b.Sum)
 		})
 		return buckets
@@ -40,10 +53,12 @@ func TestRollingWindowAdd(t *testing.T) {
 
 func TestRollingWindowReset(t *testing.T) {
 	const size = 3
-	r := NewRollingWindow(size, duration, IgnoreCurrentBucket())
+	r := NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+		return new(Bucket[float64])
+	}, size, duration, IgnoreCurrentBucket[float64, *Bucket[float64]]())
 	listBuckets := func() []float64 {
 		var buckets []float64
-		r.Reduce(func(b *Bucket) {
+		r.Reduce(func(b *Bucket[float64]) {
 			buckets = append(buckets, b.Sum)
 		})
 		return buckets
@@ -65,15 +80,19 @@ func TestRollingWindowReset(t *testing.T) {
 func TestRollingWindowReduce(t *testing.T) {
 	const size = 4
 	tests := []struct {
-		win    *RollingWindow
+		win    *RollingWindow[float64, *Bucket[float64]]
 		expect float64
 	}{
 		{
-			win:    NewRollingWindow(size, duration),
+			win: NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+				return new(Bucket[float64])
+			}, size, duration),
 			expect: 10,
 		},
 		{
-			win:    NewRollingWindow(size, duration, IgnoreCurrentBucket()),
+			win: NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+				return new(Bucket[float64])
+			}, size, duration, IgnoreCurrentBucket[float64, *Bucket[float64]]()),
 			expect: 4,
 		},
 	}
@@ -81,7 +100,7 @@ func TestRollingWindowReduce(t *testing.T) {
 	for _, test := range tests {
 		t.Run(stringx.Rand(), func(t *testing.T) {
 			r := test.win
-			for x := 0; x < size; x = x + 1 {
+			for x := 0; x < size; x++ {
 				for i := 0; i <= x; i++ {
 					r.Add(float64(i))
 				}
@@ -90,7 +109,7 @@ func TestRollingWindowReduce(t *testing.T) {
 				}
 			}
 			var result float64
-			r.Reduce(func(b *Bucket) {
+			r.Reduce(func(b *Bucket[float64]) {
 				result += b.Sum
 			})
 			assert.Equal(t, test.expect, result)
@@ -98,10 +117,45 @@ func TestRollingWindowReduce(t *testing.T) {
 	}
 }
 
+func TestRollingWindowBucketTimeBoundary(t *testing.T) {
+	const size = 3
+	interval := time.Millisecond * 30
+	r := NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+		return new(Bucket[float64])
+	}, size, interval)
+	listBuckets := func() []float64 {
+		var buckets []float64
+		r.Reduce(func(b *Bucket[float64]) {
+			buckets = append(buckets, b.Sum)
+		})
+		return buckets
+	}
+	assert.Equal(t, []float64{0, 0, 0}, listBuckets())
+	r.Add(1)
+	assert.Equal(t, []float64{0, 0, 1}, listBuckets())
+	time.Sleep(time.Millisecond * 45)
+	r.Add(2)
+	r.Add(3)
+	assert.Equal(t, []float64{0, 1, 5}, listBuckets())
+	// sleep time should be less than interval, and make the bucket change happen
+	time.Sleep(time.Millisecond * 20)
+	r.Add(4)
+	r.Add(5)
+	r.Add(6)
+	assert.Equal(t, []float64{1, 5, 15}, listBuckets())
+	time.Sleep(time.Millisecond * 100)
+	r.Add(7)
+	r.Add(8)
+	r.Add(9)
+	assert.Equal(t, []float64{0, 0, 24}, listBuckets())
+}
+
 func TestRollingWindowDataRace(t *testing.T) {
 	const size = 3
-	r := NewRollingWindow(size, duration)
-	var stop = make(chan bool)
+	r := NewRollingWindow[float64, *Bucket[float64]](func() *Bucket[float64] {
+		return new(Bucket[float64])
+	}, size, duration)
+	stop := make(chan bool)
 	go func() {
 		for {
 			select {
@@ -119,7 +173,7 @@ func TestRollingWindowDataRace(t *testing.T) {
 			case <-stop:
 				return
 			default:
-				r.Reduce(func(b *Bucket) {})
+				r.Reduce(func(b *Bucket[float64]) {})
 			}
 		}
 	}()

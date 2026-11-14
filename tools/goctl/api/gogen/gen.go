@@ -1,11 +1,9 @@
 package gogen
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -13,24 +11,58 @@ import (
 	"sync"
 	"time"
 
-	"github.com/logrusorgru/aurora"
-	"github.com/urfave/cli"
-
-	"github.com/tal-tech/go-zero/core/logx"
-	apiformat "github.com/tal-tech/go-zero/tools/goctl/api/format"
-	"github.com/tal-tech/go-zero/tools/goctl/api/parser"
-	apiutil "github.com/tal-tech/go-zero/tools/goctl/api/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
+	"github.com/gookit/color"
+	"github.com/spf13/cobra"
+	"github.com/zeromicro/go-zero/core/logx"
+	apiformat "github.com/zeromicro/go-zero/tools/goctl/api/format"
+	"github.com/zeromicro/go-zero/tools/goctl/api/parser"
+	apiutil "github.com/zeromicro/go-zero/tools/goctl/api/util"
+	"github.com/zeromicro/go-zero/tools/goctl/config"
+	"github.com/zeromicro/go-zero/tools/goctl/pkg/golang"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
 const tmpFile = "%s-%d"
 
-var tmpDir = path.Join(os.TempDir(), "goctl")
+var (
+	tmpDir = path.Join(os.TempDir(), "goctl")
+	// VarStringDir describes the directory.
+	VarStringDir string
+	// VarStringAPI describes the API.
+	VarStringAPI string
+	// VarStringHome describes the go home.
+	VarStringHome string
+	// VarStringRemote describes the remote git repository.
+	VarStringRemote string
+	// VarStringBranch describes the branch.
+	VarStringBranch string
+	// VarStringStyle describes the style of output files.
+	VarStringStyle  string
+	VarBoolWithTest bool
+	// VarBoolTypeGroup describes whether to group types.
+	VarBoolTypeGroup bool
+)
 
-func GoCommand(c *cli.Context) error {
-	apiFile := c.String("api")
-	dir := c.String("dir")
-	force := c.Bool("force")
+// GoCommand gen go project files from command line
+func GoCommand(_ *cobra.Command, _ []string) error {
+	apiFile := VarStringAPI
+	dir := VarStringDir
+	namingStyle := VarStringStyle
+	home := VarStringHome
+	remote := VarStringRemote
+	branch := VarStringBranch
+	withTest := VarBoolWithTest
+	if len(remote) > 0 {
+		repo, _ := util.CloneIntoGitHome(remote, branch)
+		if len(repo) > 0 {
+			home = repo
+		}
+	}
+
+	if len(home) > 0 {
+		pathx.RegisterGoctlHome(home)
+	}
 	if len(apiFile) == 0 {
 		return errors.New("missing -api")
 	}
@@ -38,39 +70,67 @@ func GoCommand(c *cli.Context) error {
 		return errors.New("missing -dir")
 	}
 
-	return DoGenProject(apiFile, dir, force)
+	return DoGenProject(apiFile, dir, namingStyle, withTest)
 }
 
-func DoGenProject(apiFile, dir string, force bool) error {
-	p, err := parser.NewParser(apiFile)
-	if err != nil {
-		return err
-	}
-	api, err := p.Parse()
+// DoGenProject gen go project files with api file
+func DoGenProject(apiFile, dir, style string, withTest bool) error {
+	return DoGenProjectWithModule(apiFile, dir, "", style, withTest)
+}
+
+// DoGenProjectWithModule gen go project files with api file using custom module name
+func DoGenProjectWithModule(apiFile, dir, moduleName, style string, withTest bool) error {
+	api, err := parser.Parse(apiFile)
 	if err != nil {
 		return err
 	}
 
-	logx.Must(util.MkdirIfNotExist(dir))
-	logx.Must(genEtc(dir, api))
-	logx.Must(genConfig(dir, api))
-	logx.Must(genMain(dir, api))
-	logx.Must(genServiceContext(dir, api))
-	logx.Must(genTypes(dir, api, force))
-	logx.Must(genHandlers(dir, api))
-	logx.Must(genRoutes(dir, api, force))
-	logx.Must(genLogic(dir, api))
-	createGoModFileIfNeed(dir)
+	if err := api.Validate(); err != nil {
+		return err
+	}
+
+	cfg, err := config.NewConfig(style)
+	if err != nil {
+		return err
+	}
+
+	logx.Must(pathx.MkdirIfNotExist(dir))
+
+	var rootPkg, projectPkg string
+	if len(moduleName) > 0 {
+		rootPkg, projectPkg, err = golang.GetParentPackageWithModule(dir, moduleName)
+	} else {
+		rootPkg, projectPkg, err = golang.GetParentPackage(dir)
+	}
+	if err != nil {
+		return err
+	}
+
+	logx.Must(genEtc(dir, cfg, api))
+	logx.Must(genConfig(dir, projectPkg, cfg, api))
+	logx.Must(genMain(dir, rootPkg, projectPkg, cfg, api))
+	logx.Must(genServiceContext(dir, rootPkg, projectPkg, cfg, api))
+	logx.Must(genTypes(dir, cfg, api))
+	logx.Must(genRoutes(dir, rootPkg, projectPkg, cfg, api))
+	logx.Must(genHandlers(dir, rootPkg, projectPkg, cfg, api))
+	logx.Must(genLogic(dir, rootPkg, projectPkg, cfg, api))
+	logx.Must(genMiddleware(dir, cfg, api))
+	if withTest {
+		logx.Must(genHandlersTest(dir, rootPkg, projectPkg, cfg, api))
+		logx.Must(genLogicTest(dir, rootPkg, projectPkg, cfg, api))
+		logx.Must(genServiceContextTest(dir, rootPkg, projectPkg, cfg, api))
+		logx.Must(genIntegrationTest(dir, rootPkg, projectPkg, cfg, api))
+	}
 
 	if err := backupAndSweep(apiFile); err != nil {
 		return err
 	}
 
-	if err = apiformat.ApiFormat(apiFile, false); err != nil {
+	if err := apiformat.ApiFormatByPath(apiFile, false); err != nil {
 		return err
 	}
 
-	fmt.Println(aurora.Green("Done."))
+	fmt.Println(color.Green.Render("Done."))
 	return nil
 }
 
@@ -113,14 +173,14 @@ func sweep() error {
 			seconds, err := strconv.ParseInt(timestamp, 10, 64)
 			if err != nil {
 				// print error and ignore
-				fmt.Println(aurora.Red(fmt.Sprintf("sweep ignored file: %s", fpath)))
+				fmt.Println(color.Red.Sprintf("sweep ignored file: %s", fpath))
 				return nil
 			}
 
 			tm := time.Unix(seconds, 0)
 			if tm.Before(keepTime) {
-				if err := os.Remove(fpath); err != nil {
-					fmt.Println(aurora.Red(fmt.Sprintf("failed to remove file: %s", fpath)))
+				if err := os.RemoveAll(fpath); err != nil {
+					fmt.Println(color.Red.Sprintf("failed to remove file: %s", fpath))
 					return err
 				}
 			}
@@ -128,35 +188,4 @@ func sweep() error {
 
 		return nil
 	})
-}
-
-func createGoModFileIfNeed(dir string) {
-	absDir, err := filepath.Abs(dir)
-	if err != nil {
-		panic(err)
-	}
-
-	_, hasGoMod := util.FindGoModPath(dir)
-	if hasGoMod {
-		return
-	}
-
-	gopath := os.Getenv("GOPATH")
-	parent := path.Join(gopath, "src")
-	pos := strings.Index(absDir, parent)
-	if pos >= 0 {
-		return
-	}
-
-	moduleName := absDir[len(filepath.Dir(absDir))+1:]
-	cmd := exec.Command("go", "mod", "init", moduleName)
-	cmd.Dir = dir
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
-		fmt.Println(err.Error())
-	}
-	outStr, errStr := string(stdout.Bytes()), string(stderr.Bytes())
-	fmt.Printf(outStr + "\n" + errStr)
 }

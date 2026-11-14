@@ -1,30 +1,54 @@
 package gen
 
 import (
+	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/model/sql/template"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
-	"github.com/tal-tech/go-zero/tools/goctl/util/stringx"
+	"github.com/zeromicro/go-zero/core/collection"
+	"github.com/zeromicro/go-zero/tools/goctl/model/sql/template"
+	"github.com/zeromicro/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
+	"github.com/zeromicro/go-zero/tools/goctl/util/stringx"
 )
 
-func genVars(table Table, withCache bool) (string, error) {
+func genVars(table Table, withCache, postgreSql bool) (string, error) {
 	keys := make([]string, 0)
-	for _, v := range table.CacheKey {
+	keys = append(keys, table.PrimaryCacheKey.VarExpression)
+	for _, v := range table.UniqueCacheKey {
 		keys = append(keys, v.VarExpression)
 	}
+
 	camel := table.Name.ToCamel()
-	output, err := util.With("var").
-		Parse(template.Vars).
-		GoFmt(true).
-		Execute(map[string]interface{}{
-			"lowerStartCamelObject": stringx.From(camel).UnTitle(),
-			"upperStartCamelObject": camel,
-			"cacheKeys":             strings.Join(keys, "\n"),
-			"autoIncrement":         table.PrimaryKey.AutoIncrement,
-			"originalPrimaryKey":    table.PrimaryKey.Name.Source(),
-			"withCache":             withCache,
-		})
+	text, err := pathx.LoadTemplate(category, varTemplateFile, template.Vars)
+	if err != nil {
+		return "", err
+	}
+
+	output, err := util.With("var").Parse(text).
+		GoFmt(true).Execute(map[string]any{
+		"lowerStartCamelObject": stringx.From(camel).Untitle(),
+		"upperStartCamelObject": camel,
+		"cacheKeys":             strings.Join(keys, "\n"),
+		"autoIncrement":         table.PrimaryKey.AutoIncrement,
+		"originalPrimaryKey":    wrapWithRawString(table.PrimaryKey.Name.Source(), postgreSql),
+		"withCache":             withCache,
+		"postgreSql":            postgreSql,
+		"data":                  table,
+		"ignoreColumns": func() string {
+			var set = collection.NewSet[string]()
+			for _, c := range table.ignoreColumns {
+				if postgreSql {
+					set.Add(fmt.Sprintf(`"%s"`, c))
+				} else {
+					set.Add(fmt.Sprintf("\"`%s`\"", c))
+				}
+			}
+			list := set.Keys()
+			sort.Strings(list)
+			return strings.Join(list, ", ")
+		}(),
+	})
 	if err != nil {
 		return "", err
 	}

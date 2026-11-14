@@ -1,12 +1,14 @@
 package stringx
 
-import "github.com/tal-tech/go-zero/core/lang"
+import "github.com/zeromicro/go-zero/core/lang"
 
 const defaultMask = '*'
 
 type (
+	// TrieOption defines the method to customize a Trie.
 	TrieOption func(trie *trieNode)
 
+	// A Trie is a tree implementation that used to find elements rapidly.
 	Trie interface {
 		Filter(text string) (string, []string, bool)
 		FindKeywords(text string) []string
@@ -23,6 +25,7 @@ type (
 	}
 )
 
+// NewTrie returns a Trie.
 func NewTrie(words []string, opts ...TrieOption) Trie {
 	n := new(trieNode)
 
@@ -36,6 +39,8 @@ func NewTrie(words []string, opts ...TrieOption) Trie {
 		n.add(word)
 	}
 
+	n.build()
+
 	return n
 }
 
@@ -45,7 +50,7 @@ func (n *trieNode) Filter(text string) (sentence string, keywords []string, foun
 		return text, nil, false
 	}
 
-	scopes := n.findKeywordScopes(chars)
+	scopes := n.find(chars)
 	keywords = n.collectKeywords(chars, scopes)
 
 	for _, match := range scopes {
@@ -62,7 +67,7 @@ func (n *trieNode) FindKeywords(text string) []string {
 		return nil
 	}
 
-	scopes := n.findKeywordScopes(chars)
+	scopes := n.find(chars)
 	return n.collectKeywords(chars, scopes)
 }
 
@@ -82,54 +87,13 @@ func (n *trieNode) collectKeywords(chars []rune, scopes []scope) []string {
 	return keywords
 }
 
-func (n *trieNode) findKeywordScopes(chars []rune) []scope {
-	var scopes []scope
-	size := len(chars)
-	start := -1
-
-	for i := 0; i < size; i++ {
-		child, ok := n.children[chars[i]]
-		if !ok {
-			continue
-		}
-
-		if start < 0 {
-			start = i
-		}
-		if child.end {
-			scopes = append(scopes, scope{
-				start: start,
-				stop:  i + 1,
-			})
-		}
-
-		for j := i + 1; j < size; j++ {
-			grandchild, ok := child.children[chars[j]]
-			if !ok {
-				break
-			}
-
-			child = grandchild
-			if child.end {
-				scopes = append(scopes, scope{
-					start: start,
-					stop:  j + 1,
-				})
-			}
-		}
-
-		start = -1
-	}
-
-	return scopes
-}
-
 func (n *trieNode) replaceWithAsterisk(chars []rune, start, stop int) {
 	for i := start; i < stop; i++ {
 		chars[i] = n.mask
 	}
 }
 
+// WithMask customizes a Trie with keywords masked as given mask char.
 func WithMask(mask rune) TrieOption {
 	return func(n *trieNode) {
 		n.mask = mask

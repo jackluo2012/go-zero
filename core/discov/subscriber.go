@@ -4,63 +4,118 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tal-tech/go-zero/core/discov/internal"
-	"github.com/tal-tech/go-zero/core/syncx"
+	"github.com/zeromicro/go-zero/core/discov/internal"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/syncx"
 )
 
 type (
-	subOptions struct {
-		exclusive bool
-	}
+	// SubOption defines the method to customize a Subscriber.
+	SubOption func(sub *Subscriber)
 
-	SubOption func(opts *subOptions)
-
+	// A Subscriber is used to subscribe the given key on an etcd cluster.
 	Subscriber struct {
-		items *container
+		endpoints  []string
+		exclusive  bool
+		key        string
+		exactMatch bool
+		items      Container
 	}
+	KV = internal.KV
 )
 
+// NewSubscriber returns a Subscriber.
+// endpoints is the hosts of the etcd cluster.
+// key is the key to subscribe.
+// opts are used to customize the Subscriber.
 func NewSubscriber(endpoints []string, key string, opts ...SubOption) (*Subscriber, error) {
-	var subOpts subOptions
+	sub := &Subscriber{
+		endpoints: endpoints,
+		key:       key,
+	}
 	for _, opt := range opts {
-		opt(&subOpts)
+		opt(sub)
+	}
+	if sub.items == nil {
+		sub.items = newContainer(sub.exclusive)
 	}
 
-	sub := &Subscriber{
-		items: newContainer(subOpts.exclusive),
-	}
-	if err := internal.GetRegistry().Monitor(endpoints, key, sub.items); err != nil {
+	if err := internal.GetRegistry().Monitor(endpoints, key, sub.exactMatch, sub.items); err != nil {
 		return nil, err
 	}
 
 	return sub, nil
 }
 
+// AddListener adds listener to s.
 func (s *Subscriber) AddListener(listener func()) {
-	s.items.addListener(listener)
+	s.items.AddListener(listener)
 }
 
+// Close closes the subscriber.
+func (s *Subscriber) Close() {
+	internal.GetRegistry().Unmonitor(s.endpoints, s.key, s.exactMatch, s.items)
+}
+
+// Values returns all the subscription values.
 func (s *Subscriber) Values() []string {
-	return s.items.getValues()
+	return s.items.GetValues()
 }
 
-// exclusive means that key value can only be 1:1,
+// Exclusive means that key value can only be 1:1,
 // which means later added value will remove the keys associated with the same value previously.
 func Exclusive() SubOption {
-	return func(opts *subOptions) {
-		opts.exclusive = true
+	return func(sub *Subscriber) {
+		sub.exclusive = true
 	}
 }
 
-type container struct {
-	exclusive bool
-	values    map[string][]string
-	mapping   map[string]string
-	snapshot  atomic.Value
-	dirty     *syncx.AtomicBool
-	listeners []func()
-	lock      sync.Mutex
+// WithExactMatch turn off querying using key prefixes.
+func WithExactMatch() SubOption {
+	return func(sub *Subscriber) {
+		sub.exactMatch = true
+	}
 }
+
+// WithSubEtcdAccount provides the etcd username/password.
+func WithSubEtcdAccount(user, pass string) SubOption {
+	return func(sub *Subscriber) {
+		RegisterAccount(sub.endpoints, user, pass)
+	}
+}
+
+// WithSubEtcdTLS provides the etcd CertFile/CertKeyFile/CACertFile.
+func WithSubEtcdTLS(certFile, certKeyFile, caFile string, insecureSkipVerify bool) SubOption {
+	return func(sub *Subscriber) {
+		logx.Must(RegisterTLS(sub.endpoints, certFile, certKeyFile, caFile, insecureSkipVerify))
+	}
+}
+
+// WithContainer provides a custom container to the subscriber.
+func WithContainer(container Container) SubOption {
+	return func(sub *Subscriber) {
+		sub.items = container
+	}
+}
+
+type (
+	Container interface {
+		OnAdd(kv internal.KV)
+		OnDelete(kv internal.KV)
+		AddListener(listener func())
+		GetValues() []string
+	}
+
+	container struct {
+		exclusive bool
+		values    map[string][]string
+		mapping   map[string]string
+		snapshot  atomic.Value
+		dirty     *syncx.AtomicBool
+		listeners []func()
+		lock      sync.Mutex
+	}
+)
 
 func newContainer(exclusive bool) *container {
 	return &container{
@@ -86,12 +141,23 @@ func (c *container) addKv(key, value string) ([]string, bool) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
+	oldVal, alreadyMapped := c.mapping[key]
+	if alreadyMapped && oldVal == value {
+		// duplicate PUT with same key+value, nothing to do
+		return nil, false
+	}
+
 	c.dirty.Set(true)
+	if alreadyMapped {
+		// key moved to a new value; remove stale entry to prevent leak
+		c.doRemoveKey(key)
+	}
+
 	keys := c.values[value]
 	previous := append([]string(nil), keys...)
 	early := len(keys) > 0
 	if c.exclusive && early {
-		for _, each := range keys {
+		for _, each := range previous {
 			c.doRemoveKey(each)
 		}
 	}
@@ -100,12 +166,12 @@ func (c *container) addKv(key, value string) ([]string, bool) {
 
 	if early {
 		return previous, true
-	} else {
-		return nil, false
 	}
+
+	return nil, false
 }
 
-func (c *container) addListener(listener func()) {
+func (c *container) AddListener(listener func()) {
 	c.lock.Lock()
 	c.listeners = append(c.listeners, listener)
 	c.lock.Unlock()
@@ -134,7 +200,7 @@ func (c *container) doRemoveKey(key string) {
 	}
 }
 
-func (c *container) getValues() []string {
+func (c *container) GetValues() []string {
 	if !c.dirty.True() {
 		return c.snapshot.Load().([]string)
 	}

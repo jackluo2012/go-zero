@@ -1,62 +1,61 @@
 package gogen
 
 import (
-	"bytes"
+	_ "embed"
 	"fmt"
-	"text/template"
+	"strings"
 
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
-	"github.com/tal-tech/go-zero/tools/goctl/api/util"
-	ctlutil "github.com/tal-tech/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/config"
+	"github.com/zeromicro/go-zero/tools/goctl/internal/version"
+	"github.com/zeromicro/go-zero/tools/goctl/util/format"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
+	"github.com/zeromicro/go-zero/tools/goctl/vars"
 )
 
-const (
-	contextFilename = "servicecontext.go"
-	contextTemplate = `package svc
+const contextFilename = "service_context"
 
-import {{.configImport}}
+//go:embed svc.tpl
+var contextTemplate string
 
-type ServiceContext struct {
-	Config {{.config}}
-}
-
-func NewServiceContext(c {{.config}}) *ServiceContext {
-	return &ServiceContext{Config: c}
-}
-`
-)
-
-func genServiceContext(dir string, api *spec.ApiSpec) error {
-	fp, created, err := util.MaybeCreateFile(dir, contextDir, contextFilename)
+func genServiceContext(dir, rootPkg, projectPkg string, cfg *config.Config, api *spec.ApiSpec) error {
+	filename, err := format.FileNamingFormat(cfg.NamingFormat, contextFilename)
 	if err != nil {
 		return err
 	}
-	if !created {
-		return nil
-	}
-	defer fp.Close()
 
-	var authNames = getAuths(api)
-	var auths []string
-	for _, item := range authNames {
-		auths = append(auths, fmt.Sprintf("%s config.AuthConfig", item))
+	var middlewareStr string
+	var middlewareAssignment string
+	middlewares := getMiddleware(api)
+
+	for _, item := range middlewares {
+		middlewareStr += fmt.Sprintf("%s rest.Middleware\n", item)
+		name := strings.TrimSuffix(item, "Middleware") + "Middleware"
+		middlewareAssignment += fmt.Sprintf("%s: %s,\n", item,
+			fmt.Sprintf("middleware.New%s().%s", strings.Title(name), "Handle"))
 	}
 
-	parentPkg, err := getParentPackage(dir)
-	if err != nil {
-		return err
+	configImport := "\"" + pathx.JoinPackages(rootPkg, configDir) + "\""
+	if len(middlewareStr) > 0 {
+		configImport += "\n\t\"" + pathx.JoinPackages(rootPkg, middlewareDir) + "\""
+		configImport += fmt.Sprintf("\n\t\"%s/rest\"", vars.ProjectOpenSourceURL)
 	}
-	var configImport = "\"" + ctlutil.JoinPackages(parentPkg, configDir) + "\""
-	t := template.Must(template.New("contextTemplate").Parse(contextTemplate))
-	buffer := new(bytes.Buffer)
-	err = t.Execute(buffer, map[string]string{
-		"configImport": configImport,
-		"config":       "config.Config",
+
+	return genFile(fileGenConfig{
+		dir:             dir,
+		subdir:          contextDir,
+		filename:        filename + ".go",
+		templateName:    "contextTemplate",
+		category:        category,
+		templateFile:    contextTemplateFile,
+		builtinTemplate: contextTemplate,
+		data: map[string]string{
+			"configImport":         configImport,
+			"config":               "config.Config",
+			"middleware":           middlewareStr,
+			"middlewareAssignment": middlewareAssignment,
+			"projectPkg":           projectPkg,
+			"version":              version.BuildVersion,
+		},
 	})
-	if err != nil {
-		return nil
-	}
-	formatCode := formatCode(buffer.String())
-	_, err = fp.WriteString(formatCode)
-	return err
 }

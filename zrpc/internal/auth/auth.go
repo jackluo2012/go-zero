@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/tal-tech/go-zero/core/collection"
-	"github.com/tal-tech/go-zero/core/stores/redis"
+	"github.com/zeromicro/go-zero/core/collection"
+	"github.com/zeromicro/go-zero/core/stores/redis"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -13,27 +13,28 @@ import (
 
 const defaultExpiration = 5 * time.Minute
 
+// An Authenticator is used to authenticate the rpc requests.
 type Authenticator struct {
-	store  *redis.Redis
-	key    string
-	cache  *collection.Cache
-	strict bool
+	store *redis.Redis
+	key   string
+	cache *collection.Cache
 }
 
-func NewAuthenticator(store *redis.Redis, key string, strict bool) (*Authenticator, error) {
+// NewAuthenticator returns an Authenticator.
+func NewAuthenticator(store *redis.Redis, key string) (*Authenticator, error) {
 	cache, err := collection.NewCache(defaultExpiration)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Authenticator{
-		store:  store,
-		key:    key,
-		cache:  cache,
-		strict: strict,
+		store: store,
+		key:   key,
+		cache: cache,
 	}, nil
 }
 
+// Authenticate authenticates the given ctx.
 func (a *Authenticator) Authenticate(ctx context.Context) error {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -54,15 +55,11 @@ func (a *Authenticator) Authenticate(ctx context.Context) error {
 }
 
 func (a *Authenticator) validate(app, token string) error {
-	expect, err := a.cache.Take(app, func() (interface{}, error) {
+	expect, err := a.cache.Take(app, func() (any, error) {
 		return a.store.Hget(a.key, app)
 	})
 	if err != nil {
-		if a.strict {
-			return status.Error(codes.Internal, err.Error())
-		} else {
-			return nil
-		}
+		return status.Error(codes.Unauthenticated, accessDenied)
 	}
 
 	if token != expect {

@@ -1,167 +1,285 @@
 # go-zero
+<p align="center">
+<img align="center" width="150px" src="https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/go-zero.png">
+</p>
 
-[English](readme-en.md) | 简体中文
+go-zero is a web and rpc framework with lots of builtin engineering practices. It’s born to ensure the stability of the busy services with resilience design and has been serving sites with tens of millions of users for years.
 
-[![Go](https://github.com/tal-tech/go-zero/workflows/Go/badge.svg?branch=master)](https://github.com/tal-tech/go-zero/actions)
-[![codecov](https://codecov.io/gh/tal-tech/go-zero/branch/master/graph/badge.svg)](https://codecov.io/gh/tal-tech/go-zero)
-[![Go Report Card](https://goreportcard.com/badge/github.com/tal-tech/go-zero)](https://goreportcard.com/report/github.com/tal-tech/go-zero)
-[![Release](https://img.shields.io/github/v/release/tal-tech/go-zero.svg?style=flat-square)](https://github.com/tal-tech/go-zero)
+<div align=center>
+
+[![codecov](https://codecov.io/gh/zeromicro/go-zero/branch/master/graph/badge.svg)](https://codecov.io/gh/zeromicro/go-zero)
+[![Go Report Card](https://goreportcard.com/badge/github.com/zeromicro/go-zero)](https://goreportcard.com/report/github.com/zeromicro/go-zero)
+[![Release](https://img.shields.io/github/v/release/zeromicro/go-zero.svg?style=flat-square)](https://github.com/zeromicro/go-zero)
+[![Go Reference](https://pkg.go.dev/badge/github.com/zeromicro/go-zero.svg)](https://pkg.go.dev/github.com/zeromicro/go-zero)
+[![Awesome Go](https://cdn.rawgit.com/sindresorhus/awesome/d7305f38d29fed78fa85652e3a63e154dd8e8829/media/badge.svg)](https://github.com/avelino/awesome-go)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Discord](https://img.shields.io/discord/794530774463414292?label=chat&logo=discord)](https://discord.gg/4JQvC5A4Fe)
 
-## 0. go-zero介绍
+</div>
 
-go-zero是一个集成了各种工程实践的web和rpc框架。通过弹性设计保障了大并发服务端的稳定性，经受了充分的实战检验。
 
-go-zero 包含极简的 API 定义和生成工具 goctl，可以根据定义的 api 文件一键生成 Go, iOS, Android, Kotlin, Dart, TypeScript, JavaScript 代码，并可直接运行。
+## 🤷‍ What is go-zero?
+English | [简体中文](readme-cn.md) | [한국어](readme-ko.md)
 
-使用go-zero的好处：
+<a href="https://trendshift.io/repositories/3263" target="_blank"><img src="https://trendshift.io/api/badge/repositories/3263" alt="zeromicro%2Fgo-zero | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+<a href="https://www.producthunt.com/posts/go-zero?utm_source=badge-featured&utm_medium=badge&utm_souce=badge-go&#0045;zero" target="_blank"><img src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=334030&theme=light" alt="go&#0045;zero - A&#0032;web&#0032;&#0038;&#0032;rpc&#0032;framework&#0032;written&#0032;in&#0032;Go&#0046; | Product Hunt" style="width: 250px; height: 54px;" width="250" height="54" /></a>
 
-* 轻松获得支撑千万日活服务的稳定性
-* 内建级联超时控制、限流、自适应熔断、自适应降载等微服务治理能力，无需配置和额外代码
-* 微服务治理中间件可无缝集成到其它现有框架使用
-* 极简的API描述，一键生成各端代码
-* 自动校验客户端请求参数合法性
-* 大量微服务治理和并发工具包
 
-<img src="doc/images/architecture.png" alt="架构图" width="1500" />
+go-zero (listed in CNCF Landscape: [https://landscape.cncf.io/?selected=go-zero](https://landscape.cncf.io/?selected=go-zero)) is a web and rpc framework with lots of builtin engineering practices. It’s born to ensure the stability of the busy services with resilience design and has been serving sites with tens of millions of users for years.
 
-## 1. go-zero框架背景
+go-zero contains simple API description syntax and code generation tool called `goctl`. You can generate Go, iOS, Android, Kotlin, Dart, TypeScript, JavaScript from .api files with `goctl`.
 
-18年初，晓黑板后端在经过频繁的宕机后，决定从`Java+MongoDB`的单体架构迁移到微服务架构，经过仔细思考和对比，我们决定：
+#### Advantages of go-zero:
 
-* 基于Go语言
-  * 高效的性能
-  * 简洁的语法
-  * 广泛验证的工程效率
-  * 极致的部署体验
-  * 极低的服务端资源成本
-* 自研微服务框架
-  * 个人有过很多微服务框架自研经验
-  * 需要有更快速的问题定位能力
-  * 更便捷的增加新特性
+* Improves the stability of the services with tens of millions of daily active users
+* Builtin chained timeout control, concurrency control, rate limit, adaptive circuit breaker, adaptive load shedding, even no configuration needed
+* Builtin middlewares also can be integrated into your frameworks
+* Simple API syntax, one command to generate a couple of different languages
+* Auto validate the request parameters from clients
+* Plenty of builtin microservice management and concurrent toolkits
 
-## 2. go-zero框架设计思考
+<img src="https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/architecture-en.png" alt="Architecture" width="1500" />
 
-对于微服务框架的设计，我们期望保障微服务稳定性的同时，也要特别注重研发效率。所以设计之初，我们就有如下一些准则：
+## Backgrounds of go-zero
 
-* 保持简单
-* 高可用
-* 高并发
-* 易扩展
-* 弹性设计，面向故障编程
-* 尽可能对业务开发友好，封装复杂度
-* 尽可能约束做一件事只有一种方式
+In early 2018, we transitioned from a Java+MongoDB monolithic architecture to microservices, choosing:
 
-我们经历不到半年时间，彻底完成了从`Java+MongoDB`到`Golang+MySQL`为主的微服务体系迁移，并于18年8月底完全上线，稳定保障了晓黑板后续增长，确保了整个服务的高可用。
+* **Golang** - High performance, simple syntax, excellent deployment experience, and low resource consumption
+* **Self-designed microservice framework** - Better problem isolation, easier feature extension, and faster issue resolution
 
-## 3. go-zero项目实现和特点
+## Design considerations on go-zero
 
-go-zero是一个集成了各种工程实践的包含web和rpc框架，有如下主要特点：
+go-zero follows these core design principles:
 
-* 强大的工具支持，尽可能少的代码编写
-* 极简的接口
-* 完全兼容net/http
-* 支持中间件，方便扩展
-* 高性能
-* 面向故障编程，弹性设计
-* 内建服务发现、负载均衡
-* 内建限流、熔断、降载，且自动触发，自动恢复
-* API参数自动校验
-* 超时级联控制
-* 自动缓存控制
-* 链路跟踪、统计报警等
-* 高并发支撑，稳定保障了晓黑板疫情期间每天的流量洪峰
+* **Simplicity** - Keep it simple, first principle
+* **High availability** - Stable under high concurrency
+* **Resilience** - Failure-oriented programming with adaptive protection
+* **Developer friendly** - Encapsulate complexity, one way to do one thing
+* **Easy to extend** - Flexible architecture for growth
 
-如下图，我们从多个层面保障了整体服务的高可用：
+## The implementation and features of go-zero
 
-![弹性设计](doc/images/resilience.jpg)
+go-zero integrates engineering best practices:
 
-## 4. go-zero近期开发计划
+* **Code generation** - Powerful tools to minimize boilerplate
+* **Simple API** - Clean interfaces, fully compatible with net/http
+* **High performance** - Optimized for speed and efficiency
+* **Resilience** - Built-in circuit breaker, rate limiting, load shedding, timeout control
+* **Service mesh** - Service discovery, load balancing, call tracing
+* **Developer tools** - Auto parameter validation, cache management, metrics and monitoring
 
-* 自动生成API mock server，便于客户端开发
-* 自动生成服务端功能测试
+![Resilience](https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/resilience-en.png)
 
-## 5. Installation
+## Architecture with go-zero
 
-在项目目录下通过如下命令安装：
+<img width="1067" alt="image" src="https://user-images.githubusercontent.com/1918356/171880372-5010d846-e8b1-4942-8fe2-e2bbb584f762.png">
+
+## Installation
+
+Run the following command under your project:
 
 ```shell
-go get -u github.com/tal-tech/go-zero
+go get -u github.com/zeromicro/go-zero
 ```
 
-## 6. Quick Start
+## AI-Native Development
 
-0. 完整示例请查看
+The go-zero team provides workflow guidance and implementation patterns for AI coding assistants such as Claude Code, GitHub Copilot, and Cursor. For assistants with terminal access, the recommended workflow is to run `goctl` directly to generate framework-compliant code.
 
-    [快速构建高并发微服务](doc/shorturl.md)
+### AI Tooling Projects
 
-    [快速构建高并发微服务-多RPC版](doc/bookstore.md)
+- **[ai-context](https://github.com/zeromicro/ai-context)** - Workflow guidance: how to approach go-zero development tasks and when to use goctl.
+- **[zero-skills](https://github.com/zeromicro/zero-skills)** - Implementation patterns, examples, and goctl command reference, loaded as needed.
+- **[mcp-zero](https://github.com/zeromicro/mcp-zero)** - Optional adapter that exposes goctl code generation through the Model Context Protocol (MCP).
 
-1. 安装goctl工具
+### Quick Setup
 
-   `goctl`读作`go control`，不要读成`go C-T-L`。`goctl`的意思是不要被代码控制，而是要去控制它。其中的`go`不是指`golang`。在设计`goctl`之初，我就希望通过`她`来解放我们的双手👈
+Install goctl and ensure it is available in your `$PATH`:
+
+```bash
+go install github.com/zeromicro/go-zero/tools/goctl@latest
+goctl --version
+```
+
+Follow the [ai-context setup guide](https://github.com/zeromicro/ai-context#manual-setup) and [zero-skills integration guides](https://github.com/zeromicro/zero-skills/tree/main/getting-started) to configure your assistant's workflow instructions and pattern library.
+
+### How It Works
+
+1. Consult **ai-context** for the workflow and **zero-skills** for relevant patterns.
+2. Define the `.api` or `.proto` specification, then run **goctl** in the terminal to generate code.
+3. Implement business logic, resolve dependencies, build, and test the service.
+
+**Example**: Create a REST API → write the `.api` specification → run `goctl api go` → implement the logic using **zero-skills** patterns → run `go mod tidy`, `go build ./...`, and `go test ./...`.
+
+### Optional MCP Integration
+
+For clients that use MCP tools, such as Claude Desktop, configure **[mcp-zero](https://github.com/zeromicro/mcp-zero)** to invoke goctl through MCP. It uses the same code generation engine; assistants with terminal access can use the direct workflow above without an MCP server.
+
+## Quick Start
+
+1. Full examples:
+
+     [Rapid development of microservice systems](https://github.com/zeromicro/zero-doc/blob/main/doc/shorturl-en.md)
+
+     [Rapid development of microservice systems - multiple RPCs](https://github.com/zeromicro/zero-doc/blob/main/docs/zero/bookstore-en.md)
+
+2. Install goctl
 
    ```shell
-   GO111MODULE=on GOPROXY=https://goproxy.cn/,direct go get -u github.com/tal-tech/go-zero/tools/goctl
+   # for Go
+   go install github.com/zeromicro/go-zero/tools/goctl@latest
+
+   # For Mac
+   brew install goctl
+
+   # docker for all platforms
+   docker pull kevinwan/goctl
+   # run goctl
+   docker run --rm -it -v `pwd`:/app kevinwan/goctl --help
    ```
 
-   确保goctl可执行
+   Ensure goctl is executable and in your $PATH.
 
-2. 快速生成api服务
+3. Create the API file (greet.api):
+
+   ```go
+   type (
+     Request {
+       Name string `path:"name,options=[you,me]"` // parameters are auto validated
+     }
+
+     Response {
+       Message string `json:"message"`
+     }
+   )
+
+   service greet-api {
+     @handler GreetHandler
+     get /greet/from/:name(Request) returns (Response)
+   }
+   ```
+
+   Generate .api template:
 
    ```shell
-      goctl api new greet
-      cd greet
-      go run greet.go -f etc/greet-api.yaml
+   goctl api -o greet.api
    ```
 
-      默认侦听在8888端口（可以在配置文件里修改），可以通过curl请求：
+4. Generate Go server code
 
    ```shell
-      curl -i http://localhost:8888/greet/from/you
+   goctl api go -api greet.api -dir greet
    ```
 
-      返回如下：
+   Generated structure:
+
+   ```Plain Text
+   ├── greet
+   │   ├── etc
+   │   │   └── greet-api.yaml        // configuration file
+   │   ├── greet.go                  // main file
+   │   └── internal
+   │       ├── config
+   │       │   └── config.go         // configuration definition
+   │       ├── handler
+   │       │   ├── greethandler.go   // get/put/post/delete routes are defined here
+   │       │   └── routes.go         // routes list
+   │       ├── logic
+   │       │   └── greetlogic.go     // request logic can be written here
+   │       ├── svc
+   │       │   └── servicecontext.go // service context, mysql/redis can be passed in here
+   │       └── types
+   │           └── types.go          // request/response defined here
+   └── greet.api                     // api description file
+   ```
+
+   Run the service:
+
+   ```shell
+   cd greet
+   go mod tidy
+   go run greet.go -f etc/greet-api.yaml
+   ```
+
+   Default port: 8888 (configurable in etc/greet-api.yaml)
+
+   Test with curl:
+
+   ```shell
+   curl -i http://localhost:8888/greet/from/you
+   ```
+
+   Response:
 
    ```http
-      HTTP/1.1 200 OK
-      Date: Sun, 30 Aug 2020 15:32:35 GMT
-      Content-Length: 0
+   HTTP/1.1 200 OK
+   Date: Sun, 30 Aug 2020 15:32:35 GMT
+   Content-Length: 0
    ```
 
-      编写业务代码：
+5. Write business logic
 
-      * api文件定义了服务对外暴露的路由，可参考[api规范](https://github.com/tal-tech/go-zero/blob/master/doc/goctl.md)
-      * 可以在servicecontext.go里面传递依赖给logic，比如mysql, redis等
-      * 在api定义的get/post/put/delete等请求对应的logic里增加业务处理逻辑
+    * Pass dependencies (mysql, redis, etc.) via servicecontext.go
+    * Add logic code in the logic package per .api definition
 
-3. 可以根据api文件生成前端需要的Java, TypeScript, Dart, JavaScript代码
+6. Generate client code for multiple languages
 
-      ```shell
-      goctl api java -api greet.api -dir greet
-      goctl api dart -api greet.api -dir greet
-      ...
-      ```
+   ```shell
+   goctl api java -api greet.api -dir greet
+   goctl api dart -api greet.api -dir greet
+   ...
+   ```
 
-## 7. Benchmark
+## Kubernetes RPC discovery
 
-![benchmark](doc/images/benchmark.png)
+RPC clients can discover services inside Kubernetes by using the `k8s` target
+scheme:
 
-[测试代码见这里](https://github.com/smallnest/go-web-framework-benchmark)
+```go
+c := zrpc.RpcClientConf{
+    NonBlock: true,
+    Target:   "k8s://dev/demo-rpc:8080",
+}
+```
 
-## 8. 文档 (逐步完善中)
+The target format is `k8s://<namespace>/<service>:<port>`. If the namespace is
+omitted, `default` is used. The resolver runs in-cluster and reads Kubernetes
+EndpointSlices, so the service account used by the client must be allowed to
+read EndpointSlices in the target namespace:
 
-* [快速构建高并发微服务](doc/shorturl.md)
-* [快速构建高并发微服务-多RPC版](doc/bookstore.md)
-* [goctl使用帮助](doc/goctl.md)
-* [通过MapReduce降低服务响应时间](doc/mapreduce.md)
-* [关键字替换和敏感词过滤工具](doc/keywords.md)
-* [进程内缓存使用方法](doc/collection.md)
-* [防止缓存击穿之进程内共享调用](doc/sharedcalls.md)
-* [基于prometheus的微服务指标监控](doc/metric.md)
-* [文本序列化和反序列化](doc/mapping.md)
-* [快速构建jwt鉴权认证](doc/jwt.md)
+```yaml
+rules:
+  - apiGroups: ["discovery.k8s.io"]
+    resources: ["endpointslices"]
+    verbs: ["list", "watch"]
+```
 
-## 9. 微信交流群
+## Benchmark
 
-<img src="doc/images/wechat.jpg" alt="wechat" width="300" />
+![benchmark](https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/benchmark.png)
+
+[Checkout the test code](https://github.com/smallnest/go-web-framework-benchmark)
+
+## Documents
+
+* [Documents](https://go-zero.dev/)
+* [Rapid development of microservice systems](https://github.com/zeromicro/zero-doc/blob/main/doc/shorturl-en.md)
+* [Rapid development of microservice systems - multiple RPCs](https://github.com/zeromicro/zero-doc/blob/main/docs/zero/bookstore-en.md)
+* [Examples](https://github.com/zeromicro/zero-examples)
+
+## Chat group
+
+Join the chat via https://discord.gg/4JQvC5A4Fe
+
+## Cloud Native Landscape
+
+<p float="left">
+<img src="https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/cncf-logo.svg" width="200"/>&nbsp;&nbsp;&nbsp;
+<img src="https://raw.githubusercontent.com/zeromicro/zero-doc/main/doc/images/cncf-landscape-logo.svg" width="150"/>
+</p>
+
+go-zero enlisted in the [CNCF Cloud Native Landscape](https://landscape.cncf.io/?selected=go-zero).
+
+## Give a Star! ⭐
+
+If you like this project or are using it to learn or start your own solution, give it a star to get updates on new releases. Your support matters!

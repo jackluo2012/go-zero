@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"io"
-	"io/ioutil"
 	"os"
 	"strings"
 )
@@ -16,21 +15,34 @@ type (
 		omitPrefix    string
 	}
 
+	// TextReadOption defines the method to customize the text reading functions.
 	TextReadOption func(*textReadOptions)
 )
 
+// DupReadCloser returns two io.ReadCloser that read from the first will be written to the second.
 // The first returned reader needs to be read first, because the content
 // read from it will be written to the underlying buffer of the second reader.
 func DupReadCloser(reader io.ReadCloser) (io.ReadCloser, io.ReadCloser) {
 	var buf bytes.Buffer
 	tee := io.TeeReader(reader, &buf)
-	return ioutil.NopCloser(tee), ioutil.NopCloser(&buf)
+	return io.NopCloser(tee), io.NopCloser(&buf)
 }
 
+// KeepSpace customizes the reading functions to keep leading and tailing spaces.
 func KeepSpace() TextReadOption {
 	return func(o *textReadOptions) {
 		o.keepSpace = true
 	}
+}
+
+// LimitDupReadCloser returns two io.ReadCloser that read from the first will be written to the second.
+// But the second io.ReadCloser is limited to up to n bytes.
+// The first returned reader needs to be read first, because the content
+// read from it will be written to the underlying buffer of the second reader.
+func LimitDupReadCloser(reader io.ReadCloser, n int64) (io.ReadCloser, io.ReadCloser) {
+	var buf bytes.Buffer
+	tee := LimitTeeReader(reader, &buf, n)
+	return io.NopCloser(tee), io.NopCloser(&buf)
 }
 
 // ReadBytes reads exactly the bytes with the length of len(buf)
@@ -39,18 +51,22 @@ func ReadBytes(reader io.Reader, buf []byte) error {
 
 	for got < len(buf) {
 		n, err := reader.Read(buf[got:])
+		got += n
+		if got == len(buf) {
+			return nil
+		}
+
 		if err != nil {
 			return err
 		}
-
-		got += n
 	}
 
 	return nil
 }
 
+// ReadText reads content from the given file with leading and tailing spaces trimmed.
 func ReadText(filename string) (string, error) {
-	content, err := ioutil.ReadFile(filename)
+	content, err := os.ReadFile(filename)
 	if err != nil {
 		return "", err
 	}
@@ -58,6 +74,7 @@ func ReadText(filename string) (string, error) {
 	return strings.TrimSpace(string(content)), nil
 }
 
+// ReadTextLines reads the text lines from given file.
 func ReadTextLines(filename string, opts ...TextReadOption) ([]string, error) {
 	var readOpts textReadOptions
 	for _, opt := range opts {
@@ -90,12 +107,14 @@ func ReadTextLines(filename string, opts ...TextReadOption) ([]string, error) {
 	return lines, scanner.Err()
 }
 
+// WithoutBlank customizes the reading functions to ignore blank lines.
 func WithoutBlank() TextReadOption {
 	return func(o *textReadOptions) {
 		o.withoutBlanks = true
 	}
 }
 
+// OmitWithPrefix customizes the reading functions to ignore the lines with given leading prefix.
 func OmitWithPrefix(prefix string) TextReadOption {
 	return func(o *textReadOptions) {
 		o.omitPrefix = prefix

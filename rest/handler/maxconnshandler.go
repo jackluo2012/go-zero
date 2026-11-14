@@ -3,12 +3,13 @@ package handler
 import (
 	"net/http"
 
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/core/syncx"
-	"github.com/tal-tech/go-zero/rest/internal"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/core/syncx"
+	"github.com/zeromicro/go-zero/rest/internal"
 )
 
-func MaxConns(n int) func(http.Handler) http.Handler {
+// MaxConnsHandler returns a middleware that limit the concurrent connections.
+func MaxConnsHandler(n int) func(http.Handler) http.Handler {
 	if n <= 0 {
 		return func(next http.Handler) http.Handler {
 			return next
@@ -16,19 +17,19 @@ func MaxConns(n int) func(http.Handler) http.Handler {
 	}
 
 	return func(next http.Handler) http.Handler {
-		latchLimiter := syncx.NewLimit(n)
+		latch := syncx.NewLimit(n)
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if latchLimiter.TryBorrow() {
+			if latch.TryBorrow() {
 				defer func() {
-					if err := latchLimiter.Return(); err != nil {
-						logx.Error(err)
+					if err := latch.Return(); err != nil {
+						logx.WithContext(r.Context()).Error(err)
 					}
 				}()
 
 				next.ServeHTTP(w, r)
 			} else {
-				internal.Errorf(r, "Concurrent connections over %d, rejected with code %d",
+				internal.Errorf(r, "concurrent connections over %d, rejected with code %d",
 					n, http.StatusServiceUnavailable)
 				w.WriteHeader(http.StatusServiceUnavailable)
 			}

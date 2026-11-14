@@ -1,237 +1,331 @@
-# Rpc Generation
+# goctl rpc — RPC Code Generation
 
-Goctl Rpc是`goctl`脚手架下的一个rpc服务代码生成模块，支持proto模板生成和rpc服务代码生成，通过此工具生成代码你只需要关注业务逻辑编写而不用去编写一些重复性的代码。这使得我们把精力重心放在业务上，从而加快了开发效率且降低了代码出错率。
+English | [中文](README-cn.md) | [한국어](README-ko.md)
 
-## 特性
+goctl rpc is the RPC service code generation module of the `goctl` scaffold. It generates a complete zRPC service from `.proto` files. You only need to write the proto definition and business logic — all boilerplate code is generated automatically.
 
-* 简单易用
-* 快速提升开发效率
-* 出错率低
+## Features
 
-## 快速开始
+- **protoc compatible**: Fully compatible with protoc, all protoc arguments are passed through
+- **External proto imports**: Cross-directory and cross-package proto imports with automatic transitive dependency resolution
+- **Multiple services**: Define multiple services in a single proto file, auto-grouped by service name
+- **Streaming support**: Server streaming, client streaming, and bidirectional streaming
+- **Google well-known types**: Automatic recognition of supported `google.protobuf.*` types with correct Go imports
+- **Client generation**: Auto-generated RPC client wrapper code
 
-### 方式一：快速生成greet服务
+## Prerequisites
 
-  通过命令 `goctl rpc new ${servieName}`生成
-
-  如生成greet rpc服务：
-
-  ```shell script
-  goctl rpc new greet
-  ```
-
-  执行后代码结构如下:
-
-  ```golang
-  └── greet
-    ├── etc
-    │   └── greet.yaml
-    ├── go.mod
-    ├── go.sum
-    ├── greet
-    │   ├── greet.go
-    │   ├── greet_mock.go
-    │   └── types.go
-    ├── greet.go
-    ├── greet.proto
-    ├── internal
-    │   ├── config
-    │   │   └── config.go
-    │   ├── logic
-    │   │   └── pinglogic.go
-    │   ├── server
-    │   │   └── greetserver.go
-    │   └── svc
-    │       └── servicecontext.go
-    └── pb
-        └── greet.pb.go
-  ```
-
-rpc一键生成常见问题解决见 <a href="#常见问题解决">常见问题解决</a>
-
-### 方式二：通过指定proto生成rpc服务
-
-* 生成proto模板
-
-  ```shell script
-  goctl rpc template -o=user.proto
-  ```
-
-  ```golang
-  syntax = "proto3";
-
-  package remote;
-
-  message Request {
-    // 用户名
-    string username = 1;
-    // 用户密码
-    string password = 2;
-  }
-
-  message Response {
-    // 用户名称
-    string name = 1;
-    // 用户性别
-    string gender = 2;
-  }
-
-  service User {
-    // 登录
-    rpc Login(Request)returns(Response);
-  }
-  ```
-
-* 生成rpc服务代码
-
-  ```shell script
-  goctl rpc proto -src=user.proto
-  ```
-
-  代码tree
-
-  ```Plain Text
-  user
-      ├── etc
-      │   └── user.json
-      ├── internal
-      │   ├── config
-      │   │   └── config.go
-      │   ├── handler
-      │   │   ├── loginhandler.go
-      │   ├── logic
-      │   │   └── loginlogic.go
-      │   └── svc
-      │       └── servicecontext.go
-      ├── pb
-      │   └── user.pb.go
-      ├── shared
-      │   ├── mockusermodel.go
-      │   ├── types.go
-      │   └── usermodel.go
-      ├── user.go
-      └── user.proto
-  ```
-
-## 准备工作
-
-* 安装了go环境
-* 安装了protoc&protoc-gen-go，并且已经设置环境变量
-* mockgen(可选,将移除)
-* 更多问题请见 <a href="#注意事项">注意事项</a>
-
-## 用法
-
-### rpc服务生成用法
-
-```shell script
-goctl rpc proto -h
+```bash
+# Install protoc plugins
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ```
 
-```shell script
-NAME:
-   goctl rpc proto - generate rpc from proto
+## Quick Start
 
-USAGE:
-   goctl rpc proto [command options] [arguments...]
+### Method 1: Create a Service Instantly
 
-OPTIONS:
-   --src value, -s value         the file path of the proto source file
-   --dir value, -d value         the target path of the code,default path is "${pwd}". [option]
-   --service value, --srv value  the name of rpc service. [option]
-   --shared[已废弃] value                the dir of the shared file,default path is "${pwd}/shared. [option]"
-   --idea                        whether the command execution environment is from idea plugin. [option]
-
+```bash
+goctl rpc new greeter
 ```
 
-### 参数说明
+Generates a complete project structure:
 
-* --src 必填，proto数据源，目前暂时支持单个proto文件生成，这里不支持（不建议）外部依赖
-* --dir 非必填，默认为proto文件所在目录，生成代码的目标目录
-* --service 服务名称，非必填，默认为proto文件所在目录名称，但是，如果proto所在目录为一下结构：
-
-    ```shell script
-    user
-        ├── cmd
-        │   └── rpc
-        │       └── user.proto
-    ```
-
-    则服务名称亦为user，而非proto所在文件夹名称了，这里推荐使用这种结构，可以方便在同一个服务名下建立不同类型的服务(api、rpc、mq等)，便于代码管理与维护。
-* --shared[⚠️已废弃] 非必填，默认为$dir(xxx.proto)/shared，rpc client逻辑代码存放目录。
-  
-  > 注意：这里的shared文件夹名称将会是代码中的package名称。
-
-* --idea 非必填，是否为idea插件中执行，保留字段，终端执行可以忽略
-
-### 开发人员需要做什么
-
-关注业务代码编写，将重复性、与业务无关的工作交给goctl，生成好rpc服务代码后，开饭人员仅需要修改
-
-* 服务中的配置文件编写(etc/xx.json、internal/config/config.go)
-* 服务中业务逻辑编写(internal/logic/xxlogic.go)
-* 服务中资源上下文的编写(internal/svc/servicecontext.go)
-
-## 扩展
-
-对于需要进行rpc mock的开发人员，在安装了`mockgen`工具的前提下可以在rpc的shared文件中生成好对应的mock文件。
-
-### 注意事项
-
-* `google.golang.org/grpc`需要降级到v1.26.0,且protoc-gen-go版本不能高于v1.3.2（see [https://github.com/grpc/grpc-go/issues/3347](https://github.com/grpc/grpc-go/issues/3347)）即
-  
-  ```shell script
-  replace google.golang.org/grpc => google.golang.org/grpc v1.26.0
-  ```
-
-* proto不支持暂多文件同时生成
-* proto不支持外部依赖包引入，message不支持inline
-* 目前main文件、shared文件、handler文件会被强制覆盖，而和开发人员手动需要编写的则不会覆盖生成，这一类在代码头部均有
-
-```shell script
-    // Code generated by goctl. DO NOT EDIT!
-    // Source: xxx.proto
+```
+greeter/
+├── etc/
+│   └── greeter.yaml
+├── greeter/
+│   ├── greeter.pb.go
+│   └── greeter_grpc.pb.go
+├── greeter.go
+├── greeter.proto
+├── greeterclient/
+│   └── greeter.go
+└── internal/
+    ├── config/
+    │   └── config.go
+    ├── logic/
+    │   └── pinglogic.go
+    ├── server/
+    │   └── greeterserver.go
+    └── svc/
+        └── servicecontext.go
 ```
 
-的标识，请注意不要将也写业务性代码写在里面。
+### Method 2: Generate from a Proto File
 
-## 常见问题解决(go mod工程)
+1. Generate a proto template:
 
-* 错误一:
+```bash
+goctl rpc template -o=user.proto
+```
 
-  ```golang
-  pb/xx.pb.go:220:7: undefined: grpc.ClientConnInterface
-  pb/xx.pb.go:224:11: undefined: grpc.SupportPackageIsVersion6
-  pb/xx.pb.go:234:5: undefined: grpc.ClientConnInterface
-  pb/xx.pb.go:237:24: undefined: grpc.ClientConnInterface
-  ```
+2. Initialize the output directory and generate service code:
 
-  解决方法：请将`protoc-gen-go`版本降至v1.3.2及一下
+```bash
+mkdir -p output && cd output && go mod init example.com/demo && cd ..
+goctl rpc protoc user.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo -I .
+```
 
-* 错误二:
+---
 
-  ```golang
+### Generate only the RPC client
 
-  # go.etcd.io/etcd/clientv3/balancer/picker
-  ../../../go/pkg/mod/go.etcd.io/etcd@v0.0.0-20200402134248-51bdeb39e698/clientv3/balancer/picker/err.go:25:9: cannot use &errPicker literal (type *errPicker) as type Picker in return argument:*errPicker does not implement Picker (wrong type for Pick method)
-    have Pick(context.Context, balancer.PickInfo) (balancer.SubConn, func(balancer.DoneInfo), error)
-    want Pick(balancer.PickInfo) (balancer.PickResult, error)
-    ../../../go/pkg/mod/go.etcd.io/etcd@v0.0.0-20200402134248-51bdeb39e698/clientv3/balancer/picker/roundrobin_balanced.go:33:9: cannot use &rrBalanced literal (type *rrBalanced) as type Picker in return argument:
-    *rrBalanced does not implement Picker (wrong type for Pick method)
-		have Pick(context.Context, balancer.PickInfo) (balancer.SubConn, func(balancer.DoneInfo), error)
-    want Pick(balancer.PickInfo) (balancer.PickResult, error)
-    #github.com/tal-tech/go-zero/zrpc/internal/balancer/p2c
-    ../../../go/pkg/mod/github.com/tal-tech/go-zero@v1.0.12/zrpc/internal/balancer/p2c/p2c.go:41:32: not enough arguments in call to base.NewBalancerBuilder
-	have (string, *p2cPickerBuilder)
-  want (string, base.PickerBuilder, base.Config)
-  ../../../go/pkg/mod/github.com/tal-tech/go-zero@v1.0.12/zrpc/internal/balancer/p2c/p2c.go:58:9: cannot use &p2cPicker literal (type *p2cPicker) as type balancer.Picker in return argument:
-	*p2cPicker does not implement balancer.Picker (wrong type for Pick method)
-		have Pick(context.Context, balancer.PickInfo) (balancer.SubConn, func(balancer.DoneInfo), error)
-		want Pick(balancer.PickInfo) (balancer.PickResult, error)
-  ```
+For an API gateway or another project that only calls an RPC service, use `--client-only`:
 
-  解决方法：
-  
-    ```golang
-    replace google.golang.org/grpc => google.golang.org/grpc v1.26.0
-    ```
+```bash
+goctl rpc protoc user.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo --client-only -I .
+```
+
+This keeps the protoc-generated `.pb.go` and `_grpc.pb.go` files and the go-zero client wrapper, without creating the server skeleton's `etc`, `internal`, service entry point, or server implementation files. Existing server files are left untouched. An existing Go module is reused; standalone output still creates `go.mod` as usual.
+
+`--multiple`, external proto imports, and protoc output options remain available. Omitting `--client-only` keeps full-service generation unchanged, while `--client=false` still disables the client wrapper. Combining `--client-only` with `--client=false` fails before output files are created. This option is only available for `goctl rpc protoc`.
+
+## Command Reference
+
+### `goctl rpc protoc`
+
+Generate zRPC service code from a `.proto` file.
+
+```bash
+goctl rpc protoc <proto_file> [flags]
+```
+
+**Examples:**
+
+```bash
+# Basic usage
+goctl rpc protoc user.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo -I .
+
+# Multiple services mode
+goctl rpc protoc multi.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo -I . -m
+
+# Import external protos
+goctl rpc protoc service.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo -I . -I ./shared_protos
+
+# Use Google well-known types
+goctl rpc protoc service.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo -I .
+```
+
+**Flags:**
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--zrpc_out` | | string | **required** | Output directory for zRPC service code |
+| `--go_out` | | string | **required** | Output directory for protoc Go code |
+| `--go-grpc_out` | | string | **required** | Output directory for protoc gRPC code |
+| `--go_opt` | | string | | Options for protoc-gen-go (e.g., `module=example.com/demo`) |
+| `--go-grpc_opt` | | string | | Options for protoc-gen-go-grpc (e.g., `module=example.com/demo`) |
+| `--proto_path` | `-I` | string[] | | Proto import search directories (repeatable) |
+| `--multiple` | `-m` | bool | `false` | Multiple services mode |
+| `--client` | `-c` | bool | `true` | Generate RPC client code |
+| `--client-only` | | bool | `false` | Generate protobuf files and the RPC client, without a server skeleton |
+| `--style` | | string | `gozero` | File naming style |
+| `--module` | | string | | Custom Go module name |
+| `--name-from-filename` | | bool | `false` | Use filename instead of package name for service naming |
+| `--verbose` | `-v` | bool | `false` | Enable verbose logging |
+| `--home` | | string | | goctl template directory |
+| `--remote` | | string | | Remote template Git repository URL |
+| `--branch` | | string | | Remote template branch |
+
+### `goctl rpc new`
+
+Quickly create a complete RPC service project.
+
+```bash
+goctl rpc new <service_name> [flags]
+```
+
+**Flags:**
+
+| Flag | Short | Type | Default | Description |
+|------|-------|------|---------|-------------|
+| `--style` | | string | `gozero` | File naming style |
+| `--client` | `-c` | bool | `true` | Generate RPC client code |
+| `--module` | | string | | Custom Go module name |
+| `--verbose` | `-v` | bool | `false` | Enable verbose logging |
+| `--idea` | | bool | `false` | Generate IDE project marker |
+| `--name-from-filename` | | bool | `false` | Use filename instead of package name for service naming |
+| `--home` | | string | | goctl template directory |
+| `--remote` | | string | | Remote template Git repository URL |
+| `--branch` | | string | | Remote template branch |
+
+### `goctl rpc template`
+
+Generate a proto file template.
+
+```bash
+goctl rpc template -o=<output_file> [flags]
+```
+
+**Flags:**
+
+| Flag | Type | Description |
+|------|------|-------------|
+| `-o` | string | Output file path (required) |
+| `--home` | string | goctl template directory |
+| `--remote` | string | Remote template Git repository URL |
+| `--branch` | string | Remote template branch |
+
+---
+
+## Feature Details
+
+### Multiple Services Mode (`--multiple`)
+
+When a proto file contains multiple `service` definitions, the `--multiple` flag is required.
+
+```protobuf
+service SearchService {
+  rpc Search(SearchReq) returns (SearchReply);
+}
+
+service NotifyService {
+  rpc Notify(NotifyReq) returns (NotifyReply);
+}
+```
+
+**Directory differences with `--multiple`:**
+
+| Feature | Default mode | `--multiple` mode |
+|---------|-------------|-------------------|
+| Services per proto | Exactly 1 | 1 or more |
+| Client directory | Named after service | Fixed `client/` directory |
+| Code organization | Flat structure | Grouped by service name |
+
+**`--multiple=false` (default) directory structure:**
+
+```
+output/
+├── greeterclient/
+│   └── greeter.go
+├── internal/
+│   ├── logic/
+│   │   └── sayhellologic.go
+│   └── server/
+│       └── greeterserver.go
+└── ...
+```
+
+**`--multiple=true` directory structure:**
+
+```
+output/
+├── client/
+│   ├── searchservice/
+│   │   └── searchservice.go
+│   └── notifyservice/
+│       └── notifyservice.go
+├── internal/
+│   ├── logic/
+│   │   ├── searchservice/
+│   │   │   └── searchlogic.go
+│   │   └── notifyservice/
+│   │       └── notifylogic.go
+│   └── server/
+│       ├── searchservice/
+│       │   └── searchserviceserver.go
+│       └── notifyservice/
+│           └── notifyserviceserver.go
+└── ...
+```
+
+### External Proto Imports (`--proto_path`)
+
+Use `-I` / `--proto_path` to specify additional proto search directories. Supported scenarios:
+
+- **Same-directory import**: `import "types.proto";`
+- **Subdirectory import**: `import "common/types.proto";`
+- **External directory import**: Proto files outside the project
+- **Transitive imports**: A imports B, B imports C — goctl resolves recursively
+- **Cross-package imports**: Different `go_package` values generate correct Go imports automatically
+
+```bash
+# Search multiple directories for proto files
+goctl rpc protoc service.proto \
+  --go_out=output --go-grpc_out=output --zrpc_out=output \
+  --go_opt=module=example.com/demo --go-grpc_opt=module=example.com/demo \
+  --module=example.com/demo \
+  -I . -I ./shared_protos -I /path/to/external_protos
+```
+
+### Service Naming
+
+By default, the service name is derived from the proto **package name** (e.g., `package user;` → service name `user`). This allows multiple proto files to share the same package:
+
+```
+protos/
+├── user_base.proto      # package user;
+├── user_auth.proto      # package user;
+└── user_profile.proto   # package user;
+```
+
+All three files generate into a single `user` service.
+
+To use the proto filename for naming (legacy behavior), add the `--name-from-filename` flag.
+
+### Streaming RPC
+
+All three gRPC streaming patterns are supported:
+
+```protobuf
+service StreamService {
+  rpc ServerStream(Req) returns (stream Reply);       // Server streaming
+  rpc ClientStream(stream Req) returns (Reply);       // Client streaming
+  rpc BidiStream(stream Req) returns (stream Reply);  // Bidirectional streaming
+}
+```
+
+### Google Well-Known Types
+
+goctl automatically recognizes and handles Google protobuf well-known types:
+
+| Proto Type | Go Type |
+|-----------|---------|
+| `google.protobuf.Empty` | `emptypb.Empty` |
+| `google.protobuf.Timestamp` | `timestamppb.Timestamp` |
+| `google.protobuf.Duration` | `durationpb.Duration` |
+| `google.protobuf.Any` | `anypb.Any` |
+| `google.protobuf.Struct` | `structpb.Struct` |
+| `google.protobuf.FieldMask` | `fieldmaskpb.FieldMask` |
+| `google.protobuf.*Value` | `wrapperspb.*Value` |
+
+These types can be used directly as RPC parameter types — goctl generates the correct imports automatically.
+
+---
+
+## Examples
+
+See the [example/](example/) directory for 10 complete examples covering all generation scenarios.
+
+| # | Example | Scenario |
+|---|---------|----------|
+| 01 | [Basic service](example/01-basic/) | Single service, no imports |
+| 02 | [Sibling import](example/02-import-sibling/) | Import from same directory |
+| 03 | [Subdirectory import](example/03-import-subdir/) | Import from subdirectory |
+| 04 | [Transitive import](example/04-transitive-import/) | A → B → C dependency chain |
+| 05 | [Multiple services](example/05-multiple-services/) | `--multiple` mode |
+| 06 | [Well-known types](example/06-wellknown-types/) | Timestamp etc. in messages |
+| 07 | [External proto (same pkg)](example/07-external-proto-same-pkg/) | External proto, same go_package |
+| 08 | [External proto (diff pkg)](example/08-external-proto-diff-pkg/) | External proto, different go_package |
+| 09 | [Google well-known types as params](example/09-google-types-as-rpc/) | Empty/Timestamp as RPC parameters |
+| 10 | [Streaming](example/10-streaming/) | Server/client/bidirectional streaming |

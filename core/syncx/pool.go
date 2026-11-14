@@ -4,18 +4,24 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tal-tech/go-zero/core/timex"
+	"github.com/zeromicro/go-zero/core/timex"
 )
 
 type (
+	// PoolOption defines the method to customize a Pool.
 	PoolOption func(*Pool)
 
 	node struct {
-		item     interface{}
+		item     any
 		next     *node
 		lastUsed time.Duration
 	}
 
+	// A Pool is used to pool resources.
+	// The difference between sync.Pool is that:
+	//  1. the limit of the resources
+	//  2. max age of the resources can be set
+	//  3. the method to destroy resources can be customized
 	Pool struct {
 		limit   int
 		created int
@@ -23,12 +29,13 @@ type (
 		lock    sync.Locker
 		cond    *sync.Cond
 		head    *node
-		create  func() interface{}
-		destroy func(interface{})
+		create  func() any
+		destroy func(any)
 	}
 )
 
-func NewPool(n int, create func() interface{}, destroy func(interface{}), opts ...PoolOption) *Pool {
+// NewPool returns a Pool.
+func NewPool(n int, create func() any, destroy func(any), opts ...PoolOption) *Pool {
 	if n <= 0 {
 		panic("pool size can't be negative or zero")
 	}
@@ -49,7 +56,8 @@ func NewPool(n int, create func() interface{}, destroy func(interface{}), opts .
 	return pool
 }
 
-func (p *Pool) Get() interface{} {
+// Get gets a resource.
+func (p *Pool) Get() any {
 	p.lock.Lock()
 	defer p.lock.Unlock()
 
@@ -75,7 +83,8 @@ func (p *Pool) Get() interface{} {
 	}
 }
 
-func (p *Pool) Put(x interface{}) {
+// Put puts a resource back.
+func (p *Pool) Put(x any) {
 	if x == nil {
 		return
 	}
@@ -91,6 +100,7 @@ func (p *Pool) Put(x interface{}) {
 	p.cond.Signal()
 }
 
+// WithMaxAge returns a function to customize a Pool with given max age.
 func WithMaxAge(duration time.Duration) PoolOption {
 	return func(pool *Pool) {
 		pool.maxAge = duration

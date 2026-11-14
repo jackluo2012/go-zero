@@ -8,41 +8,31 @@ import (
 	"path"
 	"strings"
 
-	"github.com/tal-tech/go-zero/core/logx"
-	"github.com/tal-tech/go-zero/tools/goctl/api/spec"
-	"github.com/tal-tech/go-zero/tools/goctl/util"
+	"github.com/zeromicro/go-zero/core/logx"
+	"github.com/zeromicro/go-zero/tools/goctl/api/spec"
+	"github.com/zeromicro/go-zero/tools/goctl/util/pathx"
 )
 
+// MaybeCreateFile creates file if not exists
 func MaybeCreateFile(dir, subdir, file string) (fp *os.File, created bool, err error) {
-	logx.Must(util.MkdirIfNotExist(path.Join(dir, subdir)))
+	logx.Must(pathx.MkdirIfNotExist(path.Join(dir, subdir)))
 	fpath := path.Join(dir, subdir, file)
-	if util.FileExists(fpath) {
+	if pathx.FileExists(fpath) {
 		fmt.Printf("%s exists, ignored generation\n", fpath)
 		return nil, false, nil
 	}
 
-	fp, err = util.CreateIfNotExist(fpath)
+	fp, err = pathx.CreateIfNotExist(fpath)
 	created = err == nil
 	return
 }
 
-func ClearAndOpenFile(fpath string) (*os.File, error) {
-	f, err := os.OpenFile(fpath, os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = f.WriteString("")
-	if err != nil {
-		return nil, err
-	}
-	return f, nil
-}
-
+// WrapErr wraps an error with message
 func WrapErr(err error, message string) error {
 	return errors.New(message + ", " + err.Error())
 }
 
+// Copy calls io.Copy if the source file and destination file exists
 func Copy(src, dst string) (int64, error) {
 	sourceFileStat, err := os.Stat(src)
 	if err != nil {
@@ -68,10 +58,27 @@ func Copy(src, dst string) (int64, error) {
 	return nBytes, err
 }
 
+// ComponentName returns component name for typescript
 func ComponentName(api *spec.ApiSpec) string {
 	name := api.Service.Name
 	if strings.HasSuffix(name, "-api") {
 		return name[:len(name)-4] + "Components"
 	}
 	return name + "Components"
+}
+
+// WriteIndent writes tab spaces
+func WriteIndent(writer io.Writer, indent int) {
+	for i := 0; i < indent; i++ {
+		fmt.Fprint(writer, "\t")
+	}
+}
+
+// RemoveComment filters comment content
+func RemoveComment(line string) string {
+	commentIdx := strings.Index(line, "//")
+	if commentIdx >= 0 {
+		return strings.TrimSpace(line[:commentIdx])
+	}
+	return strings.TrimSpace(line)
 }

@@ -8,10 +8,12 @@ type (
 	// use context and OptionalDep option to determine the value of Optional
 	// nothing to do with context.Context
 	fieldOptionsWithContext struct {
+		Inherit    bool
 		FromString bool
 		Optional   bool
 		Options    []string
 		Default    string
+		EnvVar     string
 		Range      *numberRange
 	}
 
@@ -35,9 +37,13 @@ func (o *fieldOptionsWithContext) fromString() bool {
 func (o *fieldOptionsWithContext) getDefault() (string, bool) {
 	if o == nil {
 		return "", false
-	} else {
-		return o.Default, len(o.Default) > 0
 	}
+
+	return o.Default, len(o.Default) > 0
+}
+
+func (o *fieldOptionsWithContext) inherit() bool {
+	return o != nil && o.Inherit
 }
 
 func (o *fieldOptionsWithContext) optional() bool {
@@ -55,9 +61,9 @@ func (o *fieldOptionsWithContext) options() []string {
 func (o *fieldOptions) optionalDep() string {
 	if o == nil {
 		return ""
-	} else {
-		return o.OptionalDep
 	}
+
+	return o.OptionalDep
 }
 
 func (o *fieldOptions) toOptionsWithContext(key string, m Valuer, fullName string) (
@@ -77,29 +83,30 @@ func (o *fieldOptions) toOptionsWithContext(key string, m Valuer, fullName strin
 			_, selfOn := m.Value(key)
 			if baseOn == selfOn {
 				return nil, fmt.Errorf("set value for either %q or %q in %q", dep, key, fullName)
-			} else {
-				optional = baseOn
 			}
+
+			optional = baseOn
 		} else {
 			_, baseOn := m.Value(dep)
 			_, selfOn := m.Value(key)
 			if baseOn != selfOn {
 				return nil, fmt.Errorf("values for %q and %q should be both provided or both not in %q",
 					dep, key, fullName)
-			} else {
-				optional = !baseOn
 			}
+
+			optional = !baseOn
 		}
 	}
 
 	if o.fieldOptionsWithContext.Optional == optional {
 		return &o.fieldOptionsWithContext, nil
-	} else {
-		return &fieldOptionsWithContext{
-			FromString: o.FromString,
-			Optional:   optional,
-			Options:    o.Options,
-			Default:    o.Default,
-		}, nil
 	}
+
+	return &fieldOptionsWithContext{
+		FromString: o.FromString,
+		Optional:   optional,
+		Options:    o.Options,
+		Default:    o.Default,
+		EnvVar:     o.EnvVar,
+	}, nil
 }
